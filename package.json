@@ -1,0 +1,19 @@
+{
+  "name": "github-release-monitor",
+  "version": "1.0.0",
+  "description": "Monitor GitHub repository releases on Cloudflare Workers and send webhook notifications when a new release is published.",
+  "type": "module",
+  "private": false,
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,24 @@
+name = "github-release-monitor"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+# ---------- D1 数据库绑定 ----------
+# 1) 在 Cloudflare Dashboard 创建 D1 数据库（例如名为 github-release-monitor）
+# 2) 将下方 database_id 替换为你自己的数据库 ID（Dashbord -> D1 -> 数据库 -> 概览）
+[[d1_databases]]
+binding = "DB"
+database_name = "github-release-monitor"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# ---------- 定时触发 ----------
+# 每 5 分钟唤醒一次；Worker 内部会按设置控制检查节奏
+[triggers]
+crons = ["*/5 * * * *"]
+
+# ---------- 密钥（不要在仓库中提交真实值） ----------
+# 使用 wrangler 命令行配置，例如：
+#   wrangler secret put WEBHOOK_URL
+#   wrangler secret put WEBHOOK_AUTH_TOKEN
+#   wrangler secret put GITHUB_TOKEN
+#   wrangler secret put API_KEY
+# 本地开发时可参考 .dev.vars.example 创建 .dev.vars 文件

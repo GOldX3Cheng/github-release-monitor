@@ -1,0 +1,5 @@
+# 复制此文件为 .dev.vars 并填入真实值（仅用于本地开发，勿提交）
+WEBHOOK_URL="https://example.com/your-webhook-endpoint"
+WEBHOOK_AUTH_TOKEN="your-webhook-auth-token"
+GITHUB_TOKEN="your-github-personal-access-token"
+API_KEY="your-admin-api-key"
