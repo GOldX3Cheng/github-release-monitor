@@ -219,6 +219,11 @@ A：可以。管理面板的「通知模板」支持任意 JSON 字段与受控�
 - [GOldX3Cheng](https://github.com/GOldX3Cheng) — 项目作者
 - [frankiejun（Frankie Jun）](https://github.com/frankiejun) — Webhook 推送部分（来自 [wxpush](https://github.com/frankiejun/wxpush)）
 
+ 
+ ## 友情链接
+
+ - [linux.do](https://linux.do)
+
 ## License
 
 [MIT](LICENSE) © github-release-monitor contributors
