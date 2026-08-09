@@ -728,7 +728,7 @@ async function checkSingleRepo(env, item, forceTrigger) {
         try {
           const pushRes = await fetchWithTimeout(env.WEBHOOK_URL, {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: env.WEBHOOK_AUTH_TOKEN },
+            headers: { "Content-Type": "application/json", ...(env.WEBHOOK_AUTH_TOKEN ? { Authorization: env.WEBHOOK_AUTH_TOKEN } : {}) },
             body: JSON.stringify(payload)
           }, TIMEOUT_WEBHOOK);
           if (pushRes.ok) {
@@ -842,7 +842,7 @@ async function sendAlertNotification(env, payload) {
   try {
     await fetchWithTimeout(env.WEBHOOK_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: env.WEBHOOK_AUTH_TOKEN },
+      headers: { "Content-Type": "application/json", ...(env.WEBHOOK_AUTH_TOKEN ? { Authorization: env.WEBHOOK_AUTH_TOKEN } : {}) },
       body: JSON.stringify(payload)
     }, TIMEOUT_WEBHOOK);
   } catch (e) { /* 忽略 */ }
