@@ -201,6 +201,15 @@ A：可以，但公共 API 匿名限额为 60 次/小时。监控仓库较多或
 **Q：通知格式可以改吗？**
 A：可以。管理面板的「通知模板」支持任意 JSON 字段与受控变量，适配绝大多数 Webhook 渠道。
 
+## 致谢
+
+- 本项目的 **Webhook 推送实现** 参考自 [frankiejun/wxpush](https://github.com/frankiejun/wxpush)（[MIT](https://github.com/frankiejun/wxpush/blob/main/LICENSE) 协议）——一个极简且免费的微信消息推送服务。
+
+## Contributors
+
+- [GOldX3Cheng](https://github.com/GOldX3Cheng) — 项目作者
+- [frankiejun（Frankie Jun）](https://github.com/frankiejun) — Webhook 推送部分（来自 [wxpush](https://github.com/frankiejun/wxpush)）
+
 ## License
 
 [MIT](LICENSE) © github-release-monitor contributors
