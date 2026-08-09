@@ -24,6 +24,11 @@
 - 检测到**新版本发布**时，按你自定义的模板构造消息并**推送 Webhook**；
 - 内置一个开箱即用的**管理面板**（Dashboard），可视化管理监控列表、参数与通知模板。
 
+## 📚 教程文档
+
+- [🚀 图形化部署指南（无需本地环境，约 10 分钟）](docs/deployment-guide.md)
+- [📨 通知渠道设置教程（wxpush 微信 / Telegram / Discord / Slack / 企业微信 / 钉钉 / Bark）](docs/notification-channels.md)
+
 ## 功能特性
 
 - 🚀 **纯 Serverless**：部署到 Cloudflare Workers，无需维护服务器
