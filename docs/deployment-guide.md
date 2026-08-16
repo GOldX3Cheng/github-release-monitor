@@ -30,30 +30,6 @@
 
 代码用 `env.WEBHOOK_URL` 等读变量、用 `env.DB` 读库，所以绑定名必须是 `DB`。GitHub 的 Secrets 不会被读取，只有改用 GitHub Actions 部署时才需要它。
 
-## wrangler.toml 是什么（方法二用户必看）
-
-方法二里 Cloudflare 会自动读取仓库根目录的 `wrangler.toml`。你不需要改它，但了解结构能避免困惑：
-
-```toml
-name = "github-release-monitor"
-main = "index.js"
-compatibility_date = "2024-01-01"
-
-[[d1_databases]]
-binding = "DB"              # 这就是代码里 env.DB 的绑定名
-database_name = "github-release-monitor"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # UUID，仅方法三手填；方法二被托管覆盖
-
-[triggers]
-crons = ["*/5 * * * *"]     # 每 5 分钟唤醒一次
-```
-
-关键认知：
-
-- `binding = "DB"` 决定了绑定名。方法二你在网页填的「绑定名称」必须和它一致，都是 `DB`。
-- `database_id` 在方法二由 Cloudflare 托管写入，你不要在网页里抄这串 UUID。
-- 构建命令（build command）Cloudflare 会自动检测，留空即可。
-
 ---
 
 ## 方法一：直接粘贴代码（最简单，推荐）
@@ -137,6 +113,30 @@ crons = ["*/5 * * * *"]     # 每 5 分钟唤醒一次
 
 如果你希望推送代码后自动部署，可以把本仓库直接连接到 Cloudflare。
 
+### 2.0 先看懂 wrangler.toml（本方式自动读取）
+
+Cloudflare 会自动读取仓库根目录的 `wrangler.toml`，你不需要改它，但了解结构能避免困惑：
+
+```toml
+name = "github-release-monitor"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "github-release-monitor"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+[triggers]
+crons = ["*/5 * * * *"]
+```
+
+关键认知
+
+- `binding = "DB"` 决定了绑定名。你在网页填的「绑定名称」必须和它一致，都是 `DB`。
+- `database_id` 在方法二由 Cloudflare 托管写入，你不要在网页里抄这串 UUID。
+- 构建命令 Cloudflare 会自动检测，留空即可。
+
 ### 2.1 Fork 或克隆项目
 
 - 在 GitHub 打开本仓库，点击右上角 **Fork**，选择你自己的账号，等待复制完成；
@@ -150,7 +150,7 @@ crons = ["*/5 * * * *"]     # 每 5 分钟唤醒一次
 4. 在仓库列表里选择你 Fork 出来的 `github-release-monitor`；
 5. **生产分支**选择 `main`。
 
-> Cloudflare 会自动读取仓库里的 `wrangler.toml`，**构建命令留空即可**（`main = "index.js"`，无需 npm build）。若页面出现「构建命令」输入框，直接留空。
+> 若页面出现「构建命令」输入框，直接留空即可。
 
 ### 2.3 绑定 D1 数据库
 
