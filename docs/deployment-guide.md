@@ -34,23 +34,19 @@
 
 ### 1. 创建 Worker
 
-1. 左侧菜单 **Workers 和 Pages** → **创建应用程序** → **创建 Worker**；
-2. 名称填 `github-release-monitor`，点击 **部署**（约 10 秒）。
+**Workers 和 Pages** → **创建应用程序** → **创建 Worker**，名称填 `github-release-monitor`。
 
-### 2. 粘贴代码
-
-1. 进入 Worker 页面 **编辑代码**；
-2. 清空默认模板，将仓库 `index.js` 全量复制粘贴；
-3. 点击 **保存并部署**。
-
-### 3. 创建并绑定 D1（必须）
+### 2. 创建并绑定 D1（必须）
 
 1. **Workers 和 Pages** → **D1** → **创建数据库**，名称 `github-release-monitor`；
-2. Worker 页面 **设置** → **绑定** → **添加** → **D1 数据库**；
-3. 变量名称填 `DB`，数据库选刚创建的 `github-release-monitor`，保存；
-4. 按提示重新部署使绑定生效。
+2. 回到该 Worker → **设置** → **绑定** → **添加** → **D1 数据库**；
+3. 变量名称填 `DB`，数据库选刚创建的 `github-release-monitor`，保存。
 
-数据表在首次运行时自动创建，无需手动建表。不绑定会返回 `503`。
+数据表首次运行时自动创建，无需手动建表。未绑定会返回 `503`。
+
+### 3. 粘贴代码
+
+Worker 页面 **编辑代码**，清空默认模板，将仓库 `index.js` 全量粘贴，点击 **保存并部署**。
 
 ### 4. 配置环境变量
 
@@ -85,7 +81,7 @@ GitHub 打开本仓库，**Fork** 到你的账号。
 
 1. Cloudflare **Workers 和 Pages** → **创建应用程序** → **Workers** → **连接到 Git 仓库**；
 2. 授权 Cloudflare 访问 GitHub，选择 Fork 出的仓库；
-3. 生产分支选 `main`（构建命令留空）。
+3. 生产分支选 `main`，构建命令留空，部署命令填 `npx wrangler deploy`（Cloudflare 通常自动识别，显式填写更稳）。
 
 ### 3. 绑定 D1 并配置变量
 
@@ -102,11 +98,12 @@ GitHub 打开本仓库，**Fork** 到你的账号。
 
 ### 关于 database_id（重要）
 
-`wrangler.toml` 里 `database_id` 默认是占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID`（非法 UUID）。方法二 Git 部署时 Cloudflare **不会自动覆盖**它，重部署校验该字段并报 `no valid database_id`。
+`wrangler.toml` 里 `database_id` 默认是占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID`（非法 UUID）。方法二实际执行 `wrangler deploy` 并读取该文件，Cloudflare 不覆盖占位符，重部署校验失败报 `no valid database_id`。
 
-处理（二选一）：
+处理（任选其一）：
 
-- 去 Cloudflare **D1** → 数据库「概览」复制真实 `database_id`，在你 Fork 的仓库把 `wrangler.toml` 里的占位符替换为真实 UUID 并提交；
+- 去 Cloudflare **D1** → 数据库「概览」复制真实 `database_id`，在 Fork 仓库把 `wrangler.toml` 占位符替换为真实 UUID 并提交；
+- 或删掉 `wrangler.toml` 的 `[[d1_databases]]` 整段，仅保留后台 Git 绑定（步骤 3 已绑定 `DB`），避免占位符冲突；
 - 或改用方法一，全程后台操作，不碰 `wrangler.toml`。
 
 ---
@@ -168,7 +165,7 @@ A：绑定名写 `DB`（代码 `env.DB` 引用）。`database_id` 是 `wrangler.
 A：不是，Cloudflare Cron 用 UTC。它只负责每 5 分钟唤醒，检查节奏由 Worker 内部状态机控制。
 
 **Q：需要付费吗？**
-A：免费版够用。Workers 每日 10 万次请求、D1 有免费存储与读写额度，个人监控几十个仓库在免费范围内。
+A：免费版够用。Workers 每日 10 万次请求；D1 每日 500 万行读、10 万行写、5GB 存储。个人监控几十个仓库在免费范围内。
 
 **Q：改了环境变量要重新部署吗？**
 A：要。变量保存后页面会提示重新部署，点确认，否则运行中的 Worker 仍读旧值。
