@@ -2,43 +2,33 @@
 
 # GitHub Release Monitor
 
-**在 Cloudflare Workers 上运行的 GitHub Release 监控与通知服务**
+**运行在 Cloudflare Workers 上的 GitHub Release 监控与通知服务**
 
-自动监听你关注的 GitHub 仓库，一旦发布新版本，立即通过 Webhook 推送通知到你的消息渠道（企业微信 / 钉钉 / Telegram / 自建服务……）。
+自动监听关注的仓库，发布新版本时通过 Webhook 推送通知（企业微信 / 钉钉 / Telegram / 自建服务）。
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Language: JavaScript](https://img.shields.io/badge/language-JavaScript-f1e05a.svg)]()
 [![Runtime: Cloudflare Workers](https://img.shields.io/badge/runtime-Cloudflare%20Workers-F38020.svg)]()
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)]()
 
 </div>
 
 ---
 
-## 简介
+## 教程文档
 
-`github-release-monitor` 是一个轻量、零成本（Cloudflare 免费额度内即可运行）的 Release 监控 Worker：
+部署与配置以文档为准，README 仅作概览。
 
-- 通过**定时任务**（Cron）周期性检查你所关注的仓库；
-- 使用 **D1 数据库**记录检查状态、版本标签与 ETag 缓存，避免重复通知；
-- 检测到**新版本发布**时，按你自定义的模板构造消息并**推送 Webhook**；
-- 内置一个开箱即用的**管理面板**（Dashboard），可视化管理监控列表、参数与通知模板。
-
-## 📚 教程文档
-
-- [🚀 图形化部署指南（无需本地环境，约 10 分钟）](docs/deployment-guide.md)
-- [📨 通知渠道设置教程（wxpush 微信 / Telegram / Discord / Slack / 企业微信 / 钉钉 / Bark）](docs/notification-channels.md)
+- [🚀 部署指南（图形化，无需本地环境）](docs/deployment-guide.md) — 方法一/二/三、环境变量、绑定、排错
+- [📨 通知渠道设置](docs/notification-channels.md) — wxpush 微信 / Telegram / Discord / 企业微信 / 钉钉 / Bark
 
 ## 功能特性
 
-- 🚀 **纯 Serverless**：部署到 Cloudflare Workers，无需维护服务器
-- ⏰ **定时轮询**：Cron 触发 + 状态机，节奏可配置（仓库间隔 / 周期时长）
-- 💾 **D1 持久化**：仓库列表、版本状态、错误计数全部落库，重启不丢
-- ⚡ **ETag 条件请求**：命中 304 不消耗 GitHub API 配额
-- 🔔 **模板化通知**：标题、内容、字段全部可自定义，支持变量占位符
-- 🛡️ **健康监测**：连续失败自动告警，恢复后自动收敛，支持仓库改名自适应
-- 🖥️ **管理面板**：增删监控仓库、调整参数、在线测试、一键触发检测
-- 🔐 **API 鉴权**：管理接口通过 `X-API-Key` 保护
+- 纯 Serverless，部署到 Cloudflare Workers，零服务器维护
+- Cron 定时轮询 + 状态机，仓库间隔与周期时长可调
+- D1 持久化，记录检查状态、版本、错误计数，重启不丢
+- ETag 条件请求，命中 304 不消耗 GitHub API 配额
+- 模板化通知，标题/内容/字段可自定义
+- 内置管理面板，增删仓库、调参、在线测试、一键触发
+- API 鉴权（`X-API-Key`）
 
 ## 工作原理
 
@@ -53,185 +43,70 @@ flowchart LR
     G["管理面板 Dashboard"] -->|"X-API-Key"| B
 ```
 
-Worker 内部是一个简单的状态机：
+Worker 内部为简单状态机：waiting（等待周期结束，默认 8 小时）→ checking（每 5 分钟取下一仓库查最新 Release）→ tag 变化则推送并更新，全部查完回到 waiting。
 
-1. **waiting 阶段**：等待周期结束（默认 8 小时）后，启动新一轮检查；
-2. **checking 阶段**：每间隔一定时间（默认 5 分钟）取下一个仓库，请求该仓库最新的 Release；
-3. 若 tag 与上次记录不同，则发送通知并更新记录；全部检查完后回到 waiting。
+## 部署
 
-## 目录结构
+详见[部署指南](docs/deployment-guide.md)。要点：
 
-```
-github-release-monitor/
-├── index.js              # Worker 源码（入口 + 检测逻辑 + 管理面板）
-├── wrangler.toml         # 部署配置（D1 绑定、Cron）
-├── package.json          # 依赖与脚本
-├── .dev.vars.example     # 本地开发密钥模板
-├── .gitignore
-├── LICENSE               # MIT
-└── README.md
-```
-
-## 快速开始
-
-### 环境要求
-
-- [Node.js](https://nodejs.org/) ≥ 18
-- [Cloudflare](https://dash.cloudflare.com/) 账号
-- 已安装 [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)（见下）
-
-### 1. 克隆并安装
-
-```bash
-git clone <你的仓库地址>/github-release-monitor.git
-cd github-release-monitor
-npm install
-```
-
-### 2. 创建 D1 数据库
-
-```bash
-# 登录 Cloudflare（按提示在浏览器中授权）
-npx wrangler login
-
-# 创建数据库
-npx wrangler d1 create github-release-monitor
-```
-
-将输出中的 `database_id` 填入 `wrangler.toml` 的 `database_id` 字段。
-
-> 数据表会在 Worker 首次运行时自动创建，无需手动执行迁移。
-
-### 3. 配置密钥
-
-```bash
-npx wrangler secret put WEBHOOK_URL          # 通知推送地址（必填）
-npx wrangler secret put API_KEY              # 管理面板访问密钥（必填）
-npx wrangler secret put WEBHOOK_AUTH_TOKEN   # Webhook 鉴权（可选）
-npx wrangler secret put GITHUB_TOKEN         # GitHub Token（推荐，提升 API 限额）
-```
-
-本地开发时，复制 `.dev.vars.example` 为 `.dev.vars` 并填入真实值即可。
-
-### 4. 部署
-
-```bash
-npm run deploy
-```
-
-部署完成后：
-
-- 打开 `https://<你的-worker>.workers.dev` 进入管理面板；
-- 在面板中添加要监控的仓库（格式：`作者/仓库名`，如 `openai/openai-cookbook`）；
-- 点击「测试」验证 Webhook 通知是否送达；
-- 确认 `wrangler.toml` 中的 Cron 触发已生效（默认每 5 分钟）。
+- **图形化（推荐）**：Cloudflare 后台创建 Worker、粘贴 `index.js`、绑定 D1（名称 `DB`）、配变量，约 10 分钟。
+- **命令行（未实测）**：`npx wrangler login` → `wrangler d1 create` → `wrangler secret put` → `npm run deploy`。
+- 所有配置在 Cloudflare 后台（变量和机密 / 绑定），与 GitHub Secrets 无关。
+- 方法二需注意 `wrangler.toml` 的 `database_id` 占位符不会自动覆盖，详见部署指南。
 
 ## 环境变量与绑定
 
-所有密钥通过 Cloudflare 的环境变量 / 密钥注入，**不会出现在代码与仓库中**。它们配在 Cloudflare 后台（Worker → 设置 → 变量和机密），与 GitHub 的 Secrets 无关。
+配在 Cloudflare 后台（Worker → 设置 → 变量和机密 / 绑定），不在代码与仓库中。
 
-### 环境变量 / 密钥（在「变量和机密」中配置）
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `WEBHOOK_URL` | 是 | 通知推送目标（POST JSON），完整格式见[通知渠道文档](docs/notification-channels.md) |
+| `API_KEY` | 是 | 管理面板与 API 访问密钥，随机串（如 `openssl rand -hex 16`） |
+| `WEBHOOK_AUTH_TOKEN` | 否 | 推送携带的 `Authorization` 值，部分渠道需要 |
+| `GITHUB_TOKEN` | 否 | GitHub Token，提升 API 限额、支持私有仓库 |
 
-| 变量 | 必填 | 说明 | 取值示例 / 获取方式 |
-| --- | --- | --- | --- |
-| `WEBHOOK_URL` | 是 | 通知推送的目标地址（POST JSON），如企业微信机器人、钉钉机器人、Telegram Bot API 或自建服务 | `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx` 或自建 Worker 地址。完整格式见[通知渠道文档](docs/notification-channels.md) |
-| `API_KEY` | 是 | 管理面板与 API 的访问密钥（请求头 `X-API-Key` 或查询参数 `?key=`） | 自定一串随机串，如 `openssl rand -hex 16` 生成。务必妥善保管，泄露等同于开放管理权限 |
-| `WEBHOOK_AUTH_TOKEN` | 否 | 推送到 Webhook 时携带的 `Authorization` 请求头值，部分渠道需要 | 渠道方提供的 token，如 wxpush 的发送令牌。渠道不要求鉴权时留空 |
-| `GITHUB_TOKEN` | 否 | GitHub Personal Access Token，用于提高 API 速率限制、访问私有仓库 | GitHub → Settings → Developer settings → Personal access tokens 生成。公共仓库勾 `public_repo`，私有仓库勾 `repo` |
-
-### D1 数据库绑定（在「绑定」中配置，不是变量）
-
-| 绑定名称 | 必填 | 说明 | 取值方式 |
-| --- | --- | --- | --- |
-| `DB` | 是 | D1 数据库绑定名，代码通过 `env.DB` 访问 | 在 Cloudflare「绑定」里添加 D1 数据库，绑定名称填 `DB`，从下拉列表选你创建的数据库即可（无需手填 UUID） |
-
-> 通过 Git 关联部署（方法二）时，`wrangler.toml` 里的 `database_id` 会被 Cloudflare 托管覆盖，你不用改它。详见[部署指南](docs/deployment-guide.md)。
+**D1 绑定**：名称 `DB`（代码 `env.DB` 访问），后台「绑定」里添加 D1 数据库并选库，无需手填 UUID。数据表首次运行时自动创建。
 
 ## 管理面板
 
-访问 Worker 域名即可打开控制台：
-
-- **监控仓库**：添加 / 删除 `作者/仓库名`，实时查看健康状态（正常 / 异常 / 失败 / 观察中）
-- **参数设置**：仓库检查间隔（5 到 60 分钟）、完整周期时长（1 到 48 小时）
-- **通知模板**：JSON 编辑更新 / 告警两条消息模板，支持变量校验
-- **测试**：立即检查第一个仓库并推送通知，验证链路是否通畅
-- **触发周期**：手动开启新一轮检测，无需等待周期结束
-
-## 通知模板
-
-默认模板见源码顶部 `DEFAULT_NOTIFICATION_TEMPLATE`，可在面板中覆盖。
-
-### 更新通知（新版本发布）可用变量
-
-| 变量 | 说明 |
-| --- | --- |
-| `{repo}` | 完整仓库名，如 `openai/openai-cookbook` |
-| `{repo_name}` | 仓库名，如 `openai-cookbook` |
-| `{url}` | Releases 页面链接 |
-| `{repo_url}` | 同 `{url}` |
-| `{tag}` | 最新版本标签，如 `v1.2.3` |
-
-### 告警通知（监控异常）可用变量
-
-| 变量 | 说明 |
-| --- | --- |
-| `{repo}` | 完整仓库名 |
-| `{message}` | 异常信息，如 `404 — 仓库可能已删除、改名或转为私有` |
-
-> 模板中只允许使用上表声明的变量，其他 `{xxx}` 会被拒绝保存。
+访问 Worker 域名打开控制台：增删监控仓库（`作者/仓库名`）、调检查间隔（5–60 分钟）与周期时长（1–48 小时）、编辑通知模板、在线测试、手动触发周期。
 
 ## HTTP API
 
-所有 `/api/*` 接口均需鉴权：请求头 `X-API-Key: <你的 API_KEY>`（或 URL 参数 `?key=<你的 API_KEY>`）。
+所有 `/api/*` 需鉴权：`X-API-Key: <API_KEY>`（或 `?key=`）。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/get-settings` | 读取参数与状态 |
-| POST | `/api/save-settings` | 保存参数（`repoIntervalMinutes` / `cycleIntervalHours`） |
-| GET | `/api/get-notification-config` | 读取通知模板 |
-| POST | `/api/save-notification-config` | 保存通知模板 |
-| GET | `/api/get-repos` | 读取监控仓库列表（含健康状态） |
-| POST | `/api/add-repo` | 添加仓库，body `{ "repo": "作者/仓库名" }` |
-| POST | `/api/delete-repo` | 删除仓库，body `{ "repo": "作者/仓库名" }` |
-| GET | `/api/test` | 测试第一个仓库并推送（10 秒限频，前端以 GET 调用，源码不限制方法） |
+| GET | `/api/get-settings` | 读参数与状态 |
+| POST | `/api/save-settings` | 存参数（`repoIntervalMinutes` / `cycleIntervalHours`） |
+| GET | `/api/get-notification-config` | 读通知模板 |
+| POST | `/api/save-notification-config` | 存通知模板 |
+| GET | `/api/get-repos` | 读仓库列表（含健康状态） |
+| POST | `/api/add-repo` | 加仓库，`{ "repo": "作者/仓库名" }` |
+| POST | `/api/delete-repo` | 删仓库 |
+| GET | `/api/test` | 测首个仓库并推送（10 秒限频） |
 | POST | `/api/trigger-cycle` | 手动触发新一轮检测 |
-| GET | `/api/get-logs` | 读取运行日志（当前版本已禁用，返回空数组） |
 
-## 容错与告警机制
+## 容错与告警
 
-- **GitHub 限流 / 5xx**：自动退避重试一次；
-- **连续失败告警**：同一仓库连续失败 5 次触发一次告警通知（`ALERT_FAILURE_COUNT`）；
-- **告警收敛**：告警标记 24 小时后过期（`ALERTED_AT_EXPIRE_HOURS`），恢复后连续 3 次成功即清除（`RECOVERED_SUCCESS_THRESHOLD`）；
-- **仓库改名**：检测到 GitHub 返回的新路径时，自动迁移监控记录并更新链接；
-- **404 判定**：仓库删除 / 转私有 / 改名未识别时标记为永久失败并告警。
+- GitHub 限流 / 5xx：退避重试一次
+- 连续失败 5 次触发一次告警，24 小时过期，恢复后连续 3 次成功清除
+- 仓库改名自动迁移记录；404 标记永久失败并告警
 
 ## 常见问题
 
 **Q：刚添加仓库就收到一条通知？**
-A：这是正常行为——仓库首次被监控时，会把当前最新 Release 作为基线并推送一次通知，方便你确认推送链路通畅；之后只有发布新版本才会通知。
+A：正常。首次监控会推送当前最新 Release 作基线，确认链路通畅；之后仅新版本通知。
 
 **Q：需要付费吗？**
-A：Cloudflare Workers 免费版即可运行本服务（每日 10 万次请求、D1 免费额度），适合个人与小型团队使用。
+A：Cloudflare 免费版即可（每日 10 万请求、D1 免费额度），个人使用足够。
 
 **Q：没有 GITHUB_TOKEN 可以吗？**
-A：可以，但公共 API 匿名限额为 60 次/小时。监控仓库较多或想监控私有仓库时建议配置。
-
-**Q：通知格式可以改吗？**
-A：可以。管理面板的「通知模板」支持任意 JSON 字段与受控变量，适配绝大多数 Webhook 渠道。
+A：可以，但匿名限额 60 次/小时。仓库多或监控私有仓库时建议配置。
 
 ## 致谢
 
-- 本项目的 **Webhook 推送实现** 参考自 [frankiejun/wxpush](https://github.com/frankiejun/wxpush)（[MIT](https://github.com/frankiejun/wxpush/blob/main/LICENSE) 协议）——一个极简且免费的微信消息推送服务。
-
-## Contributors
-
-- [GOldX3Cheng](https://github.com/GOldX3Cheng) — 项目作者
-- [frankiejun（Frankie Jun）](https://github.com/frankiejun) — Webhook 推送部分（来自 [wxpush](https://github.com/frankiejun/wxpush)）
-
- 
- ## 友情链接
-
- - [linux.do](https://linux.do)
+Webhook 推送参考 [frankiejun/wxpush](https://github.com/frankiejun/wxpush)（MIT）。
 
 ## License
 
