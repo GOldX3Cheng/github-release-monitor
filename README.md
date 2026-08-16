@@ -132,18 +132,18 @@ npm run deploy
 
 ### 环境变量 / 密钥（在「变量和机密」中配置）
 
-| 变量 | 必填 | 说明 |
-| --- | --- | --- |
-| `WEBHOOK_URL` | 是 | 通知推送的目标地址（POST JSON），如企业微信机器人、钉钉机器人、Telegram Bot API 或自建服务 |
-| `API_KEY` | 是 | 管理面板与 API 的访问密钥（请求头 `X-API-Key` 或查询参数 `?key=`） |
-| `WEBHOOK_AUTH_TOKEN` | 否 | 推送到 Webhook 时携带的 `Authorization` 请求头值 |
-| `GITHUB_TOKEN` | 否 | GitHub Personal Access Token，用于提高 API 速率限制、访问私有仓库 |
+| 变量 | 必填 | 说明 | 取值示例 / 获取方式 |
+| --- | --- | --- | --- |
+| `WEBHOOK_URL` | 是 | 通知推送的目标地址（POST JSON），如企业微信机器人、钉钉机器人、Telegram Bot API 或自建服务 | `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx` 或自建 Worker 地址。完整格式见[通知渠道文档](docs/notification-channels.md) |
+| `API_KEY` | 是 | 管理面板与 API 的访问密钥（请求头 `X-API-Key` 或查询参数 `?key=`） | 自定一串随机串，如 `openssl rand -hex 16` 生成。务必妥善保管，泄露等同于开放管理权限 |
+| `WEBHOOK_AUTH_TOKEN` | 否 | 推送到 Webhook 时携带的 `Authorization` 请求头值，部分渠道需要 | 渠道方提供的 token，如 wxpush 的发送令牌。渠道不要求鉴权时留空 |
+| `GITHUB_TOKEN` | 否 | GitHub Personal Access Token，用于提高 API 速率限制、访问私有仓库 | GitHub → Settings → Developer settings → Personal access tokens 生成。公共仓库勾 `public_repo`，私有仓库勾 `repo` |
 
 ### D1 数据库绑定（在「绑定」中配置，不是变量）
 
-| 绑定名称 | 必填 | 说明 |
-| --- | --- | --- |
-| `DB` | 是 | D1 数据库绑定名，代码通过 `env.DB` 访问。在 Cloudflare「绑定」里添加 D1 数据库，绑定名称填 `DB`，从下拉列表选你创建的数据库即可（无需手填 UUID） |
+| 绑定名称 | 必填 | 说明 | 取值方式 |
+| --- | --- | --- | --- |
+| `DB` | 是 | D1 数据库绑定名，代码通过 `env.DB` 访问 | 在 Cloudflare「绑定」里添加 D1 数据库，绑定名称填 `DB`，从下拉列表选你创建的数据库即可（无需手填 UUID） |
 
 > 通过 Git 关联部署（方法二）时，`wrangler.toml` 里的 `database_id` 会被 Cloudflare 托管覆盖，你不用改它。详见[部署指南](docs/deployment-guide.md)。
 
