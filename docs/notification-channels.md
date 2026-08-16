@@ -217,7 +217,7 @@ Slack 读取顶层 `text` 字段，支持 Markdown：
 
 ### 获取 Webhook 地址
 
-钉钉群 → **群设置** → **智能群助手** → **添加机器人**（选「自定义」）→ 安全设置按需选择（推荐「加签」，此时需要在 URL 后附加 `&timestamp=...&sign=...` 计算参数，或用「自定义关键词」更简单）→ 复制 Webhook URL（形如 `https://oapi.dingtalk.com/robot/send?access_token=xxx`）。
+钉钉群 → **群设置** → **智能群助手** → **添加机器人**（选「自定义」）→ 安全设置选 **「自定义关键词」**（本项目 `WEBHOOK_URL` 是固定值、无法动态计算加签，选加签会使推送全部失败）→ 复制 Webhook URL（形如 `https://oapi.dingtalk.com/robot/send?access_token=xxx`）。
 
 ### 配置
 
@@ -243,7 +243,7 @@ Slack 读取顶层 `text` 字段，支持 Markdown：
 }
 ```
 
-> 若机器人设置了「加签」安全方式，需要额外的签名计算，建议改用「自定义关键词」（关键词需出现在 `content` 中，例如固定加上 `GitHub` 字样）。
+> 关键词需出现在 `content` 中，例如固定加 `GitHub` 字样。钉钉加签依赖每次请求的动态签名，本项目不支持，请勿选择。
 
 ---
 
