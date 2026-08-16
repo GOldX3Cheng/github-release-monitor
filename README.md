@@ -126,17 +126,26 @@ npm run deploy
 - 点击「测试」验证 Webhook 通知是否送达；
 - 确认 `wrangler.toml` 中的 Cron 触发已生效（默认每 5 分钟）。
 
-## 环境变量
+## 环境变量与绑定
 
-所有密钥均通过 Cloudflare 环境变量 / 密钥注入，**不会出现在代码与仓库中**。
+所有密钥通过 Cloudflare 的环境变量 / 密钥注入，**不会出现在代码与仓库中**。它们配在 Cloudflare 后台（Worker → 设置 → 变量和机密），与 GitHub 的 Secrets 无关。
+
+### 环境变量 / 密钥（在「变量和机密」中配置）
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `WEBHOOK_URL` | ✅ | 通知推送的目标地址（POST JSON），如企业微信机器人、钉钉机器人、Telegram Bot API 或自建服务 |
-| `WEBHOOK_AUTH_TOKEN` | ❌ | 推送到 Webhook 时携带的 `Authorization` 请求头值 |
-| `GITHUB_TOKEN` | ❌ | GitHub Personal Access Token，用于提高 API 速率限制、访问私有仓库 |
-| `API_KEY` | ✅ | 管理面板与 API 的访问密钥（请求头 `X-API-Key` 或查询参数 `?key=`） |
-| `DB` | ✅ | D1 数据库绑定名（在 `wrangler.toml` 的 `[[d1_databases]]` 中配置为 `binding = "DB"`） |
+| `WEBHOOK_URL` | 是 | 通知推送的目标地址（POST JSON），如企业微信机器人、钉钉机器人、Telegram Bot API 或自建服务 |
+| `API_KEY` | 是 | 管理面板与 API 的访问密钥（请求头 `X-API-Key` 或查询参数 `?key=`） |
+| `WEBHOOK_AUTH_TOKEN` | 否 | 推送到 Webhook 时携带的 `Authorization` 请求头值 |
+| `GITHUB_TOKEN` | 否 | GitHub Personal Access Token，用于提高 API 速率限制、访问私有仓库 |
+
+### D1 数据库绑定（在「绑定」中配置，不是变量）
+
+| 绑定名称 | 必填 | 说明 |
+| --- | --- | --- |
+| `DB` | 是 | D1 数据库绑定名，代码通过 `env.DB` 访问。在 Cloudflare「绑定」里添加 D1 数据库，绑定名称填 `DB`，从下拉列表选你创建的数据库即可（无需手填 UUID） |
+
+> 通过 Git 关联部署（方法二）时，`wrangler.toml` 里的 `database_id` 会被 Cloudflare 托管覆盖，你不用改它。详见[部署指南](docs/deployment-guide.md)。
 
 ## 管理面板
 
