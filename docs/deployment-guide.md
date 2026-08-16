@@ -6,7 +6,7 @@
 
 开始之前备好以下三项：
 
-- **Cloudflare 账号**。免费版即可，无需绑卡。
+- **Cloudflare 账号**。免费版即可。当前 Cloudflare 免费版注册、创建 D1、部署 Worker 均**不需要绑定信用卡**，免费额度内不扣费；只有超过免费额度或主动升级 Workers Paid（$5/月）才会计费。
 - **一个可接收消息的 Webhook 地址**。企业微信机器人、钉钉机器人、Telegram Bot、或自建服务均可。格式与获取方式见[通知渠道文档](docs/notification-channels.md)。
 - **GitHub Personal Access Token（可选，推荐）**。不设也能用，但匿名 API 限额只有 60 次/小时。设了可提到 5000 次/小时，并支持监控私有仓库。
 
@@ -18,15 +18,17 @@
 | 方法二 关联 GitHub 自动部署 | 中 | 推送代码即自动重新部署 | Cloudflare 后台（部署配置页的「环境变量」区） | 部署配置页选 D1 并绑定，名称 `DB` |
 | 方法三 本地命令行 | 中 | 习惯 CLI / 需要本地调试 | `wrangler secret put` 或 `.dev.vars` | 写在 `wrangler.toml` 的 `[[d1_databases]]` |
 
-## 先说清楚：配置到底放哪里
+## 配置放哪里（先读这一节）
 
-这是最容易混淆的地方，先读这一段。
+所有配置都在 Cloudflare 后台，与 GitHub 无关。下面按「要配什么」直接对应操作位置：
 
-- **环境变量和密钥一律配在 Cloudflare 后台。** 包括 `WEBHOOK_URL`、`API_KEY`、`WEBHOOK_AUTH_TOKEN`、`GITHUB_TOKEN`。它们运行时由 Worker 的 `env` 对象读取（代码里是 `env.WEBHOOK_URL` 等）。GitHub 的「Settings → Secrets」与此流程无关，写了也不会被读取。只有改用「GitHub Actions 自己跑 `wrangler deploy`」时才需要 GitHub 机密，本仓库三种方式都不走那条路径。
-- **数据库绑定名固定为 `DB`。** 代码通过 `env.DB` 访问数据库。你在 Cloudflare 绑定界面填的「变量名称 / 绑定名称」就是 `DB`，不是 `database_id`。
-- **`database_id` 你不用管（除非用方法三）。** 它是 `wrangler.toml` 里的一串 UUID 字段。Git 关联部署时，Cloudflare 会托管并自动覆盖这个 ID。你只需在配置页从下拉列表「选数据库」，不用手填 UUID。
+| 你要配的东西 | 在 Cloudflare 哪里配 | 填什么 |
+| --- | --- | --- |
+| 4 个环境变量 / 密钥 | Worker → 设置 → 变量和机密 | 真实值，涉密项勾「加密」 |
+| D1 数据库绑定 | Worker → 设置 → 绑定 | 绑定名称 `DB`，下拉选库 |
+| `database_id` | 不用管（仅方法三填进 wrangler.toml） | Cloudflare 自动关联，不手填 UUID |
 
-> 一句话：配置跟着运行时走，全部在 Cloudflare 一侧。`DB` 是绑定名不是字段名，选库即可不选 UUID。
+代码用 `env.WEBHOOK_URL` 等读变量、用 `env.DB` 读库，所以绑定名必须是 `DB`。GitHub 的 Secrets 不会被读取，只有改用 GitHub Actions 部署时才需要它。
 
 ## wrangler.toml 是什么（方法二用户必看）
 
