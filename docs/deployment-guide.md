@@ -14,9 +14,11 @@
 
 | 方式 | 难度 | 适合场景 | 环境变量 / 密钥放哪 | 数据库绑定怎么设 |
 | --- | --- | --- | --- | --- |
-| 方法一 直接粘贴代码 | 低 | 不想碰 Git，最快上手 | Cloudflare 后台（Worker → 设置 → 变量和机密） | 后台「绑定」里手动加，名称 `DB` |
-| 方法二 关联 GitHub 自动部署 | 中 | 推送代码即自动重新部署 | Cloudflare 后台（部署配置页的「环境变量」区） | 部署配置页选 D1 并绑定，名称 `DB` |
+| 方法一 直接粘贴代码 | 低 | **推荐**。不碰 Git，一次性部署，最稳 | Cloudflare 后台（Worker → 设置 → 变量和机密） | 后台「绑定」里手动加，名称 `DB` |
+| 方法二 关联 GitHub 自动部署 | 中 | 推送即自动部署，但 D1 绑定有已知坑（见 2.0） | Cloudflare 后台（部署配置页的「环境变量」区） | wrangler.toml 的 `database_id` 需填真实值，否则重部署报错 |
 | 方法三 本地命令行 | 中 | 习惯 CLI / 需要本地调试 | `wrangler secret put` 或 `.dev.vars` | 写在 `wrangler.toml` 的 `[[d1_databases]]` |
+
+> 优先用 **方法一**。它全程在 Cloudflare 后台完成，不涉及 wrangler.toml 的 `database_id` 占位符问题，首次部署成功率高、最省心。方法二虽然能自动部署，但 Cloudflare 不会可靠覆盖 wrangler.toml 里的占位符 `database_id`，重新部署时可能报 `no valid database_id`（根因与处理见 2.0、2.6）。
 
 ## 配置放哪里（先读这一节）
 
@@ -26,7 +28,7 @@
 | --- | --- | --- |
 | 4 个环境变量 / 密钥 | Worker → 设置 → 变量和机密 | 真实值，涉密项勾「加密」 |
 | D1 数据库绑定 | Worker → 设置 → 绑定 | 绑定名称 `DB`，下拉选库 |
-| `database_id` | 不用管（仅方法三填进 wrangler.toml） | Cloudflare 自动关联，不手填 UUID |
+| `database_id` | 方法一无需手填；方法二需填真实值；方法三填进 wrangler.toml | 默认占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID` 必须替换，否则重部署报错 |
 
 代码用 `env.WEBHOOK_URL` 等读变量、用 `env.DB` 读库，所以绑定名必须是 `DB`。GitHub 的 Secrets 不会被读取，只有改用 GitHub Actions 部署时才需要它。
 
@@ -113,19 +115,21 @@
 
 如果你希望推送代码后自动部署，可以把本仓库直接连接到 Cloudflare。
 
-### 2.0 先看懂 wrangler.toml（本方式自动读取）
+> 注意。方法二在 D1 的 `database_id` 处理上有已知不完善之处（详见 2.0 与 2.6）。想要最省心、一次成功，优先用方法一。方法二适合能接受偶尔手动改配置的用户。
 
-Cloudflare 会自动读取仓库根目录的 `wrangler.toml`，你不需要改它，但了解结构能避免困惑：
+### 2.0 先看懂 wrangler.toml（本方式必看）
+
+Cloudflare 会自动读取仓库根目录的 `wrangler.toml`。方法二能不能顺利重部署，关键就在这个文件里的 `database_id`，别跳过。
 
 ```toml
 name = "github-release-monitor"
 main = "index.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2025-01-01"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "github-release-monitor"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 
 [triggers]
 crons = ["*/5 * * * *"]
@@ -133,9 +137,16 @@ crons = ["*/5 * * * *"]
 
 关键认知
 
-- `binding = "DB"` 决定了绑定名。你在网页填的「绑定名称」必须和它一致，都是 `DB`。
-- `database_id` 在方法二由 Cloudflare 托管写入，你不要在网页里抄这串 UUID。
-- 构建命令 Cloudflare 会自动检测，留空即可。
+- `binding = "DB"` 决定绑定名。你在网页填的「绑定名称」必须和它一致，都是 `DB`。
+- `database_id` 默认是占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID`，它不是合法 UUID。
+- 方法二部署时 Cloudflare 会读取这个字段，但不会可靠地用托管值覆盖占位符。首次部署可能靠后台绑定蒙混过去；一旦重新部署，Cloudflare 会校验 `database_id`，占位符不合法就报 `no valid database_id` 并中断。
+
+解决方式（二选一）
+
+1. 把真实 `database_id` 填进 wrangler.toml 并提交，见 2.6。
+2. 改用方法一，全程后台操作，根本不碰 wrangler.toml，最省心。
+
+> 这就是方法二「可能不是很完善」的根因。它胜在自动部署，代价是要正确处理这个字段。
 
 ### 2.1 Fork 或克隆项目
 
@@ -176,7 +187,17 @@ crons = ["*/5 * * * *"]
 此后每次向 `main` 推送代码，Cloudflare 都会自动重新部署。
 
 > 关键提醒：这里的「环境变量」是 **Cloudflare 部署配置页里的输入框**，不是 GitHub 仓库的 Secrets。两者互不相通，别在 GitHub 那边配。
-> 另外，`wrangler.toml` 里的 `database_id` 字段在 Git 部署时会被 Cloudflare 托管覆盖，你不用改它、也不用抄 UUID 到任何地方。如果部署后接口报 `503`（数据库未绑定），直接进 Worker 的 **设置 → 绑定**，手动选 D1 数据库、绑定名填 `DB` 即可。
+> 另外，`wrangler.toml` 里的 `database_id` 默认是占位符，Git 部署**不会可靠覆盖**它。重部署若报 `no valid database_id`，需把真实 id 填进 wrangler.toml 并提交，步骤见 2.6。若部署后接口报 `503`（数据库未绑定），进 Worker 的 **设置 → 绑定**，手动选 D1 数据库、绑定名填 `DB`。
+
+### 2.6 填真实 database_id（避免重部署报错）
+
+若重部署报 `no valid database_id`，按下面做，只需处理一次：
+
+1. 打开 Cloudflare **D1**，进入你的 `github-release-monitor` 数据库，在「概览」复制 **database_id**（一串 UUID）；
+2. 在你 Fork 的仓库里编辑 `wrangler.toml`，把 `database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"` 替换为真实 UUID；
+3. 提交并推送到 `main`，Cloudflare 自动重部署即可成功。
+
+> 密钥（`WEBHOOK_URL`、`API_KEY` 等）仍然在 Cloudflare 后台配，不要写进 wrangler.toml。
 
 ---
 
@@ -222,6 +243,7 @@ npm run dev
 | 现象 | 可能原因 | 处理方式 |
 | --- | --- | --- |
 | 面板打开报 `503` | D1 未绑定或绑定名不是 `DB` | 进 **设置 → 绑定** 确认有变量名 `DB` 的 D1 绑定；Git 部署偶尔未生效，手动选一次 |
+| 重部署报 `no valid database_id` | wrangler.toml 的 `database_id` 仍是占位符 | 去 D1「概览」复制真实 id，替换 wrangler.toml 里的占位符并提交（见 2.6） |
 | 面板提示 `Unauthorized` | 未设 `API_KEY` | 进 **设置 → 变量和机密** 添加 `API_KEY`，重新部署 |
 | 添加仓库后无通知 | `WEBHOOK_URL` 错 / 渠道要 `Authorization` 头 | 核对地址与 `WEBHOOK_AUTH_TOKEN`；点面板「测试」验证链路 |
 | 面板空白 / 部署失败 | 代码粘贴不全或 `index.js` 不完整 | 重新全量复制 `index.js` 再保存部署 |
@@ -236,7 +258,10 @@ npm run dev
 A：不应该。方法二走的是 Cloudflare 自己的 Git 流水线，运行期只读 Cloudflare 后台的「变量和机密」。GitHub Secrets 只有当你用 GitHub Actions 部署时才生效，本仓库三种方式都不依赖它。
 
 **Q：数据库变量名写 DB 还是 database_id？内容填库名还是 UUID？**
-A：变量名写 `DB`（代码 `env.DB` 引用的绑定名）。`database_id` 是 `wrangler.toml` 的字段，不是绑定名。Git 部署时在配置页从下拉列表「选数据库」即可，不用手填 UUID；UUID 由 Cloudflare 后台自动关联。
+A：绑定名写 `DB`（代码 `env.DB` 引用的绑定名）。`database_id` 是 `wrangler.toml` 的字段，不是绑定名。方法一、方法三通过后台/本地配置关联；方法二则必须把这个字段从占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID` 改成真实 UUID（见 2.6），否则重部署报 `no valid database_id`。
+
+**Q：方法二重部署报 no valid database_id 怎么办？**
+A：wrangler.toml 里的 `database_id` 默认是占位符，Cloudflare 不会可靠覆盖它。去 D1 数据库「概览」复制真实 database_id，替换 wrangler.toml 里的占位符并提交即可（步骤见 2.6）。若不想处理这个，用方法一更省心。
 
 **Q：Cron 的时间是北京时间吗？**
 A：不是。Cloudflare Cron 用 UTC。但 Cron 只负责「每 5 分钟唤醒」，具体检查节奏由 Worker 内部状态机控制，与你的本地时区无关，无需换算。
