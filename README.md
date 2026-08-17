@@ -71,6 +71,8 @@ Worker 内部为简单状态机：waiting（等待周期结束，默认 8 小时
 
 访问 Worker 域名打开控制台：增删监控仓库（`作者/仓库名`）、调检查间隔（5–60 分钟）与周期时长（1–48 小时）、编辑通知模板、在线测试、手动触发周期。
 
+面板由 `API_KEY` 保护，打开时需在地址后加 `?key=<API_KEY>`（或请求头 `X-API-Key`）；`API_KEY` 即部署时配置的环境变量，无复杂度要求。直接打开裸域名会提示「鉴权失败」，补上 key 即可。详见[部署指南](docs/deployment-guide.md) 步骤 6。
+
 ![管理面板](docs/assets/dashboard-screenshot.png)
 
 ## HTTP API

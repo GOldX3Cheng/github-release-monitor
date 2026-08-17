@@ -59,7 +59,7 @@ Worker 页面 **编辑代码**，清空默认模板，将仓库 `index.js` 全�
 | 变量名 | 必填 | 说明 | 示例 |
 | --- | --- | --- | --- |
 | `WEBHOOK_URL` | 必填 | 通知推送目标（POST JSON） | `https://your-wxpush.workers.dev/wxsend` |
-| `API_KEY` | 必填 | 管理面板与 API 访问密钥，随机字符串 | `aB3kF9...` |
+| `API_KEY` | 必填 | 管理面板与 API 的访问密钥（随机串）；打开面板需在地址后加 `?key=<此值>`（见步骤 6） | `aB3kF9...` |
 | `WEBHOOK_AUTH_TOKEN` | 选填 | 推送携带的 `Authorization` 值（部分渠道需要） | 渠道提供的 token |
 | `GITHUB_TOKEN` | 选填（推荐） | 提高 API 限额，支持私有仓库 | `github_pat_...` |
 
@@ -69,9 +69,18 @@ Worker 页面 **编辑代码**，清空默认模板，将仓库 `index.js` 全�
 
 **设置** → **触发器** → **添加 Cron 触发器**，输入 `*/5 * * * *`。Cron 用 **UTC**，每 5 分钟唤醒一次，检查节奏由 Worker 内部状态机控制。
 
-### 6. 验证
+### 6. 验证与访问面板
 
-访问 Worker 地址（形如 `https://github-release-monitor.<子域>.workers.dev`），应看到管理面板。添加仓库（如 `openai/openai-cookbook`）并点「测试」，确认收到通知。
+管理面板由 `API_KEY` 保护，打开时必须在地址后携带 key：
+
+    https://github-release-monitor.<子域>.workers.dev/?key=<你的API_KEY>
+
+- 服务端对 key 只做字符串相等比对，**无长度或复杂度要求**，任意字符串均可，只需与 `API_KEY` 变量值完全一致。
+- 首次带 `?key=` 访问后，key 存入浏览器会话，后续请求自动带上。
+- 直接打开裸域名（`https://...workers.dev/`）会提示「鉴权失败：请提供有效的 API Key」，这是预期保护，补上 `?key=` 即可。
+- 调用 API（`/api/*`）也可改用请求头 `X-API-Key: <API_KEY>`。
+
+进入面板后添加仓库（如 `openai/openai-cookbook`）并点「测试」，确认收到通知。
 
 ---
 
@@ -150,6 +159,7 @@ npm run dev
 | 面板报 `503` | D1 未绑定或绑定名不是 `DB` | **设置 → 绑定** 确认有变量名 `DB` 的 D1 绑定 |
 | 重部署报 `no valid database_id` | `wrangler.toml` 的 `database_id` 仍是占位符 | 去 D1「概览」复制真实 id 替换占位符并提交（见方法二） |
 | 面板提示 `Unauthorized` | 未设 `API_KEY` | **设置 → 变量和机密** 添加 `API_KEY`，重新部署 |
+| 面板提示「鉴权失败：请提供有效的 API Key」 | 已设 `API_KEY`，但打开的是裸域名 | 在地址后加 `?key=<API_KEY>` 再访问（key 无复杂度要求，与变量值一致即可） |
 | 添加仓库后无通知 | `WEBHOOK_URL` 错 / 渠道要 `Authorization` 头 | 核对地址与 `WEBHOOK_AUTH_TOKEN`，点面板「测试」 |
 | 面板空白 / 部署失败 | 代码粘贴不全 | 重新全量复制 `index.js` 再保存部署 |
 | 通知延迟数小时 | Cron 每 5 分钟只查一个仓库 | 正常节奏，8 小时完成一轮，可在面板调检查间隔 |
