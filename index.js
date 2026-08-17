@@ -84,7 +84,7 @@ async function initDB(db, retries = 3) {
 
       await db.prepare(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`).run();
 
-      await db.prepare(`CREATE TABLE IF NOT EXISTS repos (repo TEXT PRIMARY KEY, custom_url TEXT NOT NULL)`).run();
+      await db.prepare(`CREATE TABLE IF NOT EXISTS repos (repo TEXT PRIMARY KEY, custom_url TEXT NOT NULL, note TEXT)`).run();
 
       await db.prepare(`CREATE TABLE IF NOT EXISTS repo_state (repo TEXT PRIMARY KEY, tag TEXT, etag TEXT, errors_json TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')))`).run();
 
@@ -96,6 +96,17 @@ async function initDB(db, retries = 3) {
       if (!hasVersion) {
         try {
           await db.prepare(`ALTER TABLE check_state ADD COLUMN version INTEGER NOT NULL DEFAULT 0`).run();
+        } catch (e) {
+          if (!e.message.includes('duplicate column')) throw e;
+        }
+      }
+
+      // 兼容旧表 note 列（备注）
+      const repoCols = await db.prepare(`PRAGMA table_info(repos)`).all();
+      const hasNote = repoCols.results.some(c => c.name === 'note');
+      if (!hasNote) {
+        try {
+          await db.prepare(`ALTER TABLE repos ADD COLUMN note TEXT`).run();
         } catch (e) {
           if (!e.message.includes('duplicate column')) throw e;
         }
@@ -244,13 +255,13 @@ async function saveNotificationTemplate(db, template) {
 }
 
 async function getStoredRepos(db) {
-  const { results } = await db.prepare("SELECT repo, custom_url FROM repos").all();
-  return results || [];
+  const { results } = await db.prepare("SELECT repo, custom_url, note FROM repos").all();
+  return (results || []).map(r => ({ ...r, note: r.note || '' }));
 }
 
-async function addRepo(db, repo, custom_url) {
-  await db.prepare("INSERT OR IGNORE INTO repos (repo, custom_url) VALUES (?1, ?2)")
-    .bind(repo, custom_url).run();
+async function addRepo(db, repo, custom_url, note = '') {
+  await db.prepare("INSERT OR IGNORE INTO repos (repo, custom_url, note) VALUES (?1, ?2, ?3)")
+    .bind(repo, custom_url, note).run();
 }
 
 async function deleteRepo(db, repo) {
@@ -457,7 +468,7 @@ export default {
 
     if (url.pathname === "/api/add-repo" && request.method === "POST") {
       if (!body) return jsonResponse({ error: "Missing body" }, 400);
-      const { repo } = body;
+      const { repo, note } = body;
       if (!repo || !/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo) || repo.includes("..")) {
         return jsonResponse({ success: false, error: "格式应为「作者/项目名」" }, 400);
       }
@@ -466,9 +477,21 @@ export default {
         return jsonResponse({ success: false, error: "项目已在监控中" }, 400);
       }
       const custom_url = `https://github.com/${repo}/releases`;
-      await addRepo(db, repo, custom_url);
+      await addRepo(db, repo, custom_url, note || '');
       const updated = await getStoredRepos(db);
       return jsonResponse({ success: true, repos: updated });
+    }
+
+    if (url.pathname === "/api/update-note" && request.method === "POST") {
+      if (!body) return jsonResponse({ error: "Missing body" }, 400);
+      const { repo, note } = body;
+      if (!repo) return jsonResponse({ success: false, error: "缺少 repo 参数" }, 400);
+      const repos = await getStoredRepos(db);
+      if (!repos.some(item => item.repo === repo)) {
+        return jsonResponse({ success: false, error: "项目不存在" }, 404);
+      }
+      await db.prepare("UPDATE repos SET note = ?1 WHERE repo = ?2").bind(note || '', repo).run();
+      return jsonResponse({ success: true });
     }
 
     if (url.pathname === "/api/delete-repo" && request.method === "POST") {
@@ -990,6 +1013,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     .badge-warn { background: #FEF7E0; color: #E37400; }
     .badge-dead { background: #FCE8E6; color: #D93025; }
     .badge-recov { background: #FFFDE7; color: #9E7D00; }
+    .note-input { width: 100%; min-width: 120px; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--md-sys-color-outline, #ccc); border-radius: 6px; background: var(--md-sys-color-surface, #fff); color: inherit; font-size: 0.8rem; }
+    .note-input:focus { outline: 2px solid var(--md-sys-color-primary); outline-offset: 1px; }
     @media (prefers-color-scheme: dark) {
       .badge-ok { background: #1A3C28; color: #81C995; }
       .badge-warn { background: #3C3014; color: #FDD663; }
@@ -1019,8 +1044,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 <body>
   <div id="authError" class="auth-error">⛔ 鉴权失败：请提供有效的 API Key</div>
   <header class="app-header">
-    <h1>🔍 GitHub Release 监控 <span class="version">V28 stable</span></h1>
-    <p class="subtitle">实时追踪项目发布 · 自动推送通知</p>
+    <h1>🔍 GitHub Release 监控</h1>
   </header>
 
   <div class="card">
@@ -1067,7 +1091,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     <h2>📋 正在监控的项目 (<span id="repoCount">0</span>)</h2>
     <div class="table-wrapper">
       <table>
-        <thead><tr><th>状态</th><th>项目路径</th><th>通知链接</th><th style="width:80px">操作</th></tr></thead>
+        <thead><tr><th>状态</th><th>项目路径</th><th>备注</th><th>通知链接</th><th style="width:80px">操作</th></tr></thead>
         <tbody id="repoTableBody"></tbody>
       </table>
     </div>
@@ -1111,6 +1135,10 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
       document.getElementById('repoTableBody').addEventListener('click', (e) => {
         const btn = e.target.closest('.delete-repo-btn');
         if (btn) { const repo = btn.dataset.repo; if (repo) deleteRepo(repo); }
+      });
+      document.getElementById('repoTableBody').addEventListener('change', (e) => {
+        const input = e.target.closest('.note-input');
+        if (input) saveNote(input.dataset.repo, input.value);
       });
       loadSettings(); loadNotificationConfig(); loadRepos();
     });
@@ -1196,13 +1224,13 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     function renderTable(repos) {
       document.getElementById('repoCount').textContent = repos.length;
       const tbody = document.getElementById('repoTableBody');
-      if (!repos.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--md-sys-color-on-surface-variant);">暂无监控项目</td></tr>'; return; }
+      if (!repos.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--md-sys-color-on-surface-variant);">暂无监控项目</td></tr>'; return; }
       tbody.innerHTML = repos.map(item => {
         let badgeClass = 'badge-ok', badgeText = '正常';
         if (item.health==='dead') { badgeClass = 'badge-dead'; badgeText = '失效'; }
         else if (item.health==='warning') { badgeClass = 'badge-warn'; badgeText = '异常'; }
         else if (item.health==='recovered') { badgeClass = 'badge-recov'; badgeText = '观察中'; }
-        return '<tr><td><span class="badge '+badgeClass+'" title="'+escAttr(item.lastError||'')+'">'+badgeText+'</span></td><td>'+esc(item.repo)+'</td><td><code style="background:var(--md-sys-color-surface-variant);padding:2px 6px;border-radius:4px;">'+esc(item.custom_url)+'</code></td><td><button class="btn btn-error delete-repo-btn" data-repo="'+escAttr(item.repo)+'" style="height:32px;padding:0 12px;font-size:0.7rem;">删除</button></td></tr>';
+        return '<tr><td><span class="badge '+badgeClass+'" title="'+escAttr(item.lastError||'')+'">'+badgeText+'</span></td><td>'+esc(item.repo)+'</td><td><input class="note-input" data-repo="'+escAttr(item.repo)+'" value="'+escAttr(item.note||'')+'" placeholder="备注..."></td><td><code style="background:var(--md-sys-color-surface-variant);padding:2px 6px;border-radius:4px;">'+esc(item.custom_url)+'</code></td><td><button class="btn btn-error delete-repo-btn" data-repo="'+escAttr(item.repo)+'" style="height:32px;padding:0 12px;font-size:0.7rem;">删除</button></td></tr>';
       }).join('');
     }
 
@@ -1224,6 +1252,12 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (data.success) { renderTable(data.repos); loadSettings(); }
         else alert('错误: ' + data.error);
       } catch (e) { alert('请求失败: ' + e.message); }
+    }
+
+    async function saveNote(repo, note) {
+      try {
+        await apiFetch('/api/update-note', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ repo, note }) });
+      } catch (e) { alert('备注保存失败: ' + e.message); }
     }
 
     async function runTest() {
