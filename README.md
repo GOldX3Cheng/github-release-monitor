@@ -112,6 +112,10 @@ A：可以，但匿名限额 60 次/小时。仓库多或监控私有仓库时�
 
 Webhook 推送参考 [frankiejun/wxpush](https://github.com/frankiejun/wxpush)（MIT）。
 
+## 友情链接
+
+- [Linux.do 社区](https://linux.do/) — 独立开发者与自托管爱好者交流论坛
+
 ## License
 
 [MIT](LICENSE) © github-release-monitor contributors
