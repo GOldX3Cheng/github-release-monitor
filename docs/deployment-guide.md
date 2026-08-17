@@ -13,8 +13,8 @@
 | 方式 | 难度 | 说明 |
 | --- | --- | --- |
 | 方法一 直接粘贴代码 | 低 | 推荐，一次性部署，最稳 |
-| 方法二 关联 GitHub 自动部署 | 中 | 推送即部署；未实测，`database_id` 需手动处理（见方法二说明） |
-| 方法三 本地命令行 | 中 | 未实测 |
+| 方法二 关联 GitHub 自动部署 | 中 | 有人实测可用；`database_id` 需手动处理（见方法二说明） |
+| 方法三 本地命令行 | 中 | 已实测（见下方命令） |
 
 ## 配置位置（通用）
 
@@ -84,7 +84,7 @@ Worker 页面 **编辑代码**，清空默认模板，将仓库 `index.js` 全�
 
 ---
 
-## 方法二：关联 GitHub 自动部署（未实测）
+## 方法二：关联 GitHub 自动部署（已有人实测可用）
 
 ### 1. Fork 仓库
 
@@ -109,6 +109,8 @@ GitHub 打开本仓库，**Fork** 到你的账号。
 
 点击 **保存并部署**，约 1 到 2 分钟上线。此后向 `main` 推送即自动部署。
 
+**关于「上游更新会不会自动同步到你的部署」**：本方式要求先 Fork 本仓库再连接。Fork 是一份独立拷贝，你（上游）向 `main` 推送不会自动流入他人的 Fork。他人要拿到新代码，须先在自己的 Fork 点 **Sync fork** 把上游合并进其 `main`，Cloudflare 才会用新代码重部署。若他人直接连接的是本仓库原 repo（未 Fork），则上游推送即自动重部署。
+
 ### 关于 database_id（重要）
 
 `wrangler.toml` 里 `database_id` 默认是占位符 `REPLACE_WITH_YOUR_D1_DATABASE_ID`（非法 UUID）。方法二实际执行 `wrangler deploy` 并读取该文件，Cloudflare 不覆盖占位符，重部署校验失败报 `no valid database_id`。
@@ -123,7 +125,13 @@ GitHub 打开本仓库，**Fork** 到你的账号。
 
 ## 方法三：本地命令行
 
-适合习惯 CLI 的用户。本项目的备注列等新版本即通过此方法部署验证。
+适合习惯 CLI 的用户。已实测可用（本项目线上版本即通过此方式部署）。
+
+**变量保留要点（重要）**：`wrangler deploy` 会整体设定 Worker 绑定，不是增量合并。
+
+- 后台用「加密」设的密钥（`secret_text`，如 `API_KEY`、`GITHUB_TOKEN`）部署后**保留**，无需在 toml 重复。
+- 后台以明文设的变量（`plain_text`，如 `WEBHOOK_URL`、`WEBHOOK_AUTH_TOKEN`）若没写进 toml，部署后会被**清掉**。
+- 处理：把这些明文变量写进 `wrangler.toml` 的 `[vars]`，或改用 `wrangler secret put` 设为加密密钥（推荐，避免值进仓库）。
 
 ```bash
 # 1. 克隆项目
