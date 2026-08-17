@@ -114,7 +114,7 @@ Webhook 推送参考 [frankiejun/wxpush](https://github.com/frankiejun/wxpush)�
 
 ## 友情链接
 
-- [Linux.do 社区](https://linux.do/) — 独立开发者与自托管爱好者交流论坛
+- [Linux.do 社区](https://linux.do/)
 
 ## License
 
