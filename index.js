@@ -49,6 +49,11 @@ const ALERTED_AT_EXPIRE_HOURS = 24;
 const TIMEOUT_GITHUB = 10000;
 const TIMEOUT_WEBHOOK = 8000;
 
+// Webhook 推送失败时的重试上限：每个新版本最多推送 MAX_NOTIFY_ATTEMPTS 次（按巡检周期约 8h 间隔），
+// 达到上限后停止，避免 Webhook 长期不可达时无限重复同一条通知。
+// 若 Webhook 恢复，下一次成功推送即标记该版本为已通知；如需立即补发可手动触发测试。
+const MAX_NOTIFY_ATTEMPTS = 3;
+
 const SANITIZE_REGEX = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF]/g;
 const VAR_REGEX = /\{(\w+)\}/g;
 
@@ -107,6 +112,26 @@ async function initDB(db, retries = 3) {
       if (!hasNote) {
         try {
           await db.prepare(`ALTER TABLE repos ADD COLUMN note TEXT`).run();
+        } catch (e) {
+          if (!e.message.includes('duplicate column')) throw e;
+        }
+      }
+
+      // 兼容旧表 repo_state：新增「已通知版本」与「推送尝试次数」两列
+      // last_notified_tag：最近一次成功推送通知的版本（用于去重，避免重复通知）
+      // notify_attempts：当前版本推送失败后的重试计数（达到上限即停止，防止无限重复）
+      const stateCols = await db.prepare(`PRAGMA table_info(repo_state)`).all();
+      const stateColNames = stateCols.results.map(c => c.name);
+      if (!stateColNames.includes('last_notified_tag')) {
+        try {
+          await db.prepare(`ALTER TABLE repo_state ADD COLUMN last_notified_tag TEXT`).run();
+        } catch (e) {
+          if (!e.message.includes('duplicate column')) throw e;
+        }
+      }
+      if (!stateColNames.includes('notify_attempts')) {
+        try {
+          await db.prepare(`ALTER TABLE repo_state ADD COLUMN notify_attempts INTEGER NOT NULL DEFAULT 0`).run();
         } catch (e) {
           if (!e.message.includes('duplicate column')) throw e;
         }
@@ -290,6 +315,30 @@ async function getRepoEtag(db, repo) {
 async function setRepoEtag(db, repo, etag) {
   await db.prepare(`INSERT INTO repo_state (repo, etag) VALUES (?1, ?2)
     ON CONFLICT(repo) DO UPDATE SET etag = excluded.etag`).bind(repo, etag).run();
+}
+
+// 最近一次成功推送通知的版本（用于去重，避免同一版本被反复通知）
+async function getRepoNotifiedTag(db, repo) {
+  const row = await db.prepare("SELECT last_notified_tag FROM repo_state WHERE repo = ?").bind(repo).first();
+  return row ? row.last_notified_tag : null;
+}
+async function setRepoNotifiedTag(db, repo, tag) {
+  await db.prepare(`INSERT INTO repo_state (repo, last_notified_tag) VALUES (?1, ?2)
+    ON CONFLICT(repo) DO UPDATE SET last_notified_tag = excluded.last_notified_tag`).bind(repo, tag).run();
+}
+
+// 当前版本推送失败后的重试计数
+async function getNotifyAttempts(db, repo) {
+  const row = await db.prepare("SELECT notify_attempts FROM repo_state WHERE repo = ?").bind(repo).first();
+  return row ? (row.notify_attempts || 0) : 0;
+}
+async function resetNotifyAttempts(db, repo) {
+  await db.prepare(`INSERT INTO repo_state (repo, notify_attempts) VALUES (?1, 0)
+    ON CONFLICT(repo) DO UPDATE SET notify_attempts = 0`).bind(repo).run();
+}
+async function incNotifyAttempts(db, repo) {
+  await db.prepare(`INSERT INTO repo_state (repo, notify_attempts) VALUES (?1, 1)
+    ON CONFLICT(repo) DO UPDATE SET notify_attempts = notify_attempts + 1`).bind(repo).run();
 }
 
 async function getErrorsForRepo(db, repo) {
@@ -735,7 +784,20 @@ async function checkSingleRepo(env, item, forceTrigger) {
     }
 
     const isNew = latestTag && latestTag !== oldTag;
-    if (forceTrigger || isNew) {
+    // 已成功通知的版本（去重依据）；forceTrigger 时不读取，始终强制推送
+    const lastNotified = forceTrigger ? null : await getRepoNotifiedTag(db, repo);
+    const alreadyNotified = !!latestTag && latestTag === lastNotified;
+    const attempts = forceTrigger ? 0 : await getNotifyAttempts(db, repo);
+
+    // 观测到全新版本：立即记录已观测版本并重置重试计数（避免反复当作「全新」重抓 / 重复判定）
+    if (!forceTrigger && isNew) {
+      await setRepoTag(db, repo, latestTag);
+      await resetNotifyAttempts(db, repo);
+    }
+
+    // 仅在「未成功通知过当前版本」且「重试次数未达上限」时才推送；forceTrigger 始终推送
+    const needNotify = forceTrigger || (!alreadyNotified && attempts < MAX_NOTIFY_ATTEMPTS);
+    if (needNotify) {
       const template = await getNotificationTemplate(db);
       const repoName = repo.split("/")[1] || repo;
       const payload = buildPayload(template.update, {
@@ -764,11 +826,18 @@ async function checkSingleRepo(env, item, forceTrigger) {
         if (attempt < 1) await new Promise(r => setTimeout(r, 1000));
       }
 
-      if (pushOk && isNew) {
-        await setRepoTag(db, repo, latestTag);
+      if (pushOk) {
+        // 推送成功：标记该版本已通知并清零重试计数
+        await setRepoNotifiedTag(db, repo, latestTag);
+        await resetNotifyAttempts(db, repo);
+        if (forceTrigger) await setRepoTag(db, repo, latestTag);
+      } else {
+        // 推送失败：递增重试计数；达到上限后停止，避免无限重复通知
+        // 手动测试(forceTrigger)失败不计入重试次数，避免抬高真实巡检的 attempts
+        if (!forceTrigger) await incNotifyAttempts(db, repo);
       }
 
-      return { repo, success: true, push_ok: pushOk };
+      return { repo, success: true, push_ok: pushOk, is_new: !forceTrigger && isNew };
     }
 
     return { repo, success: true };
@@ -825,7 +894,7 @@ async function handleRename(env, oldRepo, newRepo, tag) {
   await db.batch([
     db.prepare("UPDATE repos SET repo = ?1, custom_url = ?2 WHERE repo = ?3")
       .bind(newRepo, `https://github.com/${newRepo}/releases`, oldRepo),
-    db.prepare("INSERT OR IGNORE INTO repo_state (repo, tag, etag, errors_json) SELECT ?1, tag, etag, errors_json FROM repo_state WHERE repo = ?2")
+    db.prepare("INSERT OR IGNORE INTO repo_state (repo, tag, etag, errors_json, last_notified_tag, notify_attempts) SELECT ?1, tag, etag, errors_json, last_notified_tag, notify_attempts FROM repo_state WHERE repo = ?2")
       .bind(newRepo, oldRepo),
     db.prepare("DELETE FROM repo_state WHERE repo = ?").bind(oldRepo),
     db.prepare("INSERT OR IGNORE INTO repo_state (repo) VALUES (?)").bind(newRepo)
