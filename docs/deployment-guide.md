@@ -121,9 +121,9 @@ GitHub 打开本仓库，**Fork** 到你的账号。
 
 ---
 
-## 方法三：本地命令行（未实测）
+## 方法三：本地命令行
 
-适合习惯 CLI 的用户，以下步骤未经实际验证，仅供参考。
+适合习惯 CLI 的用户。本项目的备注列等新版本即通过此方法部署验证。
 
 ```bash
 # 1. 克隆项目
@@ -138,6 +138,8 @@ npx wrangler login
 
 # 4. 创建 D1 数据库，把输出的 database_id 填入 wrangler.toml
 npx wrangler d1 create github-release-monitor
+#   注意：wrangler.toml 里的 database_id 默认是占位符 REPLACE_WITH_YOUR_D1_DATABASE_ID，
+#   必须替换成上一步的真实 id，否则部署报 no valid database_id
 
 # 5. 配置机密（按提示输入，不要提交到仓库）
 npx wrangler secret put WEBHOOK_URL
