@@ -437,7 +437,7 @@ export default {
     if (request.method === "POST" || request.method === "PUT") {
       try {
         const text = await request.text();
-        if (text.length > 4096) return jsonResponse({ error: "Request body too large" }, 413);
+        if (text.length > 65536) return jsonResponse({ error: "Request body too large" }, 413);
         if (text.length > 0) body = JSON.parse(text);
       } catch (err) {
         if (err instanceof SyntaxError) return jsonResponse({ error: "Invalid JSON" }, 400);
@@ -620,6 +620,52 @@ export default {
 
       const updated = await getStoredRepos(db);
       return jsonResponse({ success: true, repos: updated });
+    }
+
+    // 批量导出（逐行输出 owner/name 为 TXT 附件）
+    if (url.pathname === "/api/export-repos") {
+      const repos = await getStoredRepos(db);
+      const lines = (repos || []).map(r => r.repo);
+      const txt = lines.join("\n") + (lines.length ? "\n" : "");
+      return new Response(txt, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Content-Disposition": 'attachment; filename="repos_export.txt"'
+        }
+      });
+    }
+
+    // 批量导入（逐行识别 TXT，支持 `owner/name` 或 `owner/name|备注`）
+    if (url.pathname === "/api/import-repos" && request.method === "POST") {
+      if (!body || typeof body.content !== "string") {
+        return jsonResponse({ success: false, error: "缺少文件内容（content 字段）" }, 400);
+      }
+      const lines = body.content.split(/\r?\n/);
+      const existing = new Set((await getStoredRepos(db)).map(r => r.repo.toLowerCase()));
+      const seen = new Set();
+      const stmts = [];
+      let imported = 0, skipped = 0, invalid = 0;
+      const invalidLines = [];
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith("#")) continue;
+        let repo = line, note = '';
+        const pipe = line.indexOf("|");
+        if (pipe > 0) { repo = line.slice(0, pipe).trim(); note = line.slice(pipe + 1).trim(); }
+        if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo) || repo.includes("..")) {
+          invalid++;
+          if (invalidLines.length < 10) invalidLines.push(rawLine);
+          continue;
+        }
+        const key = repo.toLowerCase();
+        if (existing.has(key) || seen.has(key)) { skipped++; continue; }
+        seen.add(key);
+        stmts.push(db.prepare("INSERT OR IGNORE INTO repos (repo, custom_url, note) VALUES (?1, ?2, ?3)").bind(repo, `https://github.com/${repo}/releases`, note));
+        imported++;
+      }
+      if (stmts.length) await db.batch(stmts);
+      const updated = await getStoredRepos(db);
+      return jsonResponse({ success: true, imported, skipped, invalid, invalidLines, repos: updated });
     }
 
     // 手动测试
@@ -1232,6 +1278,17 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
   </div>
 
   <div class="card">
+    <h2>📦 批量导入 / 导出项目</h2>
+    <p class="help-text">导入：选择 TXT，逐行识别 <code>owner/name</code>（可附加 <code>owner/name|备注</code>），自动跳过空白、注释（# 开头）、重复与非法行。导出：把所有监控项目按行输出为 TXT。</p>
+    <div class="form-group">
+      <input type="file" id="importFile" accept=".txt,text/plain" style="flex:1;min-width:200px;">
+      <button class="btn btn-filled" onclick="importRepos()">📥 导入 TXT</button>
+      <button class="btn btn-tonal" onclick="exportRepos()">📤 导出 TXT</button>
+    </div>
+    <div id="importResult" class="help-text"></div>
+  </div>
+
+  <div class="card">
     <h2>📋 正在监控的项目 (<span id="repoCount">0</span>)</h2>
     <div class="table-wrapper">
       <table>
@@ -1428,6 +1485,39 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (data.success) { renderTable(data.repos); loadSettings(); }
         else alert('错误: ' + data.error);
       } catch (e) { alert('请求失败: ' + e.message); }
+    }
+
+    async function importRepos() {
+      const fileInput = document.getElementById('importFile');
+      const resultEl = document.getElementById('importResult');
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) { resultEl.textContent = '⚠️ 请先选择一个 .txt 文件'; resultEl.style.color = 'var(--md-sys-color-error)'; return; }
+      resultEl.textContent = '⏳ 正在导入...'; resultEl.style.color = 'var(--md-sys-color-on-surface-variant)';
+      try {
+        const content = await file.text();
+        const res = await apiFetch('/api/import-repos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ content }) });
+        const data = await res.json();
+        if (data.success) {
+          let msg = '✅ 导入完成：新增 ' + data.imported + ' 个，跳过重复 ' + data.skipped + ' 个，非法 ' + data.invalid + ' 行';
+          if (data.invalidLines && data.invalidLines.length) msg += '\n⚠️ 非法行示例：' + data.invalidLines.slice(0,3).join(' | ');
+          resultEl.textContent = msg; resultEl.style.color = 'var(--md-sys-color-primary)';
+          renderTable(data.repos); loadSettings();
+          fileInput.value = '';
+        } else { resultEl.textContent = '❌ ' + (data.error || '导入失败'); resultEl.style.color = 'var(--md-sys-color-error)'; }
+      } catch (e) { resultEl.textContent = '请求失败: ' + e.message; resultEl.style.color = 'var(--md-sys-color-error)'; }
+    }
+
+    async function exportRepos() {
+      try {
+        const res = await apiFetch('/api/export-repos');
+        const txt = await res.text();
+        const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'repos_export.txt';
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) { alert('导出失败: ' + e.message); }
     }
 
     async function saveNote(repo, note) {
