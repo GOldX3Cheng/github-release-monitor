@@ -8,7 +8,8 @@
 
 const DEFAULT_SETTINGS = {
   repoIntervalMinutes: 5,
-  cycleIntervalHours: 8
+  cycleIntervalHours: 8,
+  dnd: { enabled: false, start: "23:00", end: "08:00" }
 };
 
 const DEFAULT_NOTIFICATION_TEMPLATE = {
@@ -67,6 +68,26 @@ function sanitizeTemplate(obj) {
     return cleaned;
   }
   return obj;
+}
+
+// ==================== 免打扰模式（时间按 Worker 运行时 UTC 解释） ====================
+// 判断当前是否处于免打扰时段；start/end 为 "HH:MM"，end<=start 视为跨午夜。
+function parseHHMM(str) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(str || "");
+  if (!m) return null;
+  const h = parseInt(m[1], 10), mi = parseInt(m[2], 10);
+  if (h > 23 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
+function isDndActive(dnd, now = new Date()) {
+  if (!dnd || !dnd.enabled) return false;
+  const s = parseHHMM(dnd.start);
+  const e = parseHHMM(dnd.end);
+  if (s === null || e === null || s === e) return false;
+  const cur = now.getUTCHours() * 60 + now.getUTCMinutes();
+  if (s < e) return cur >= s && cur < e;
+  return cur >= s || cur < e;
 }
 
 // ==================== D1 表初始化（使用单行 prepare + run） ====================
@@ -449,6 +470,28 @@ export default {
         if (isNaN(v) || v < 1 || v > 48) return jsonResponse({ success: false, error: "周期间隔需在 1~48 小时之间" }, 400);
         settings.cycleIntervalHours = v;
       }
+      if (body.dnd !== undefined) {
+        const d = body.dnd;
+        if (typeof d !== 'object' || d === null) return jsonResponse({ success: false, error: "dnd 必须为对象" }, 400);
+        const dnd = { ...(settings.dnd || { enabled: false, start: "23:00", end: "08:00" }) };
+        if (d.enabled !== undefined) {
+          if (typeof d.enabled !== 'boolean') return jsonResponse({ success: false, error: "dnd.enabled 必须为布尔值" }, 400);
+          dnd.enabled = d.enabled;
+        }
+        if (d.start !== undefined) {
+          if (!/^\d{1,2}:\d{2}$/.test(d.start)) return jsonResponse({ success: false, error: "dnd.start 格式应为 HH:MM (UTC)" }, 400);
+          const [sh, sm] = d.start.split(':').map(Number);
+          if (sh > 23 || sm > 59) return jsonResponse({ success: false, error: "dnd.start 时间超出范围" }, 400);
+          dnd.start = d.start;
+        }
+        if (d.end !== undefined) {
+          if (!/^\d{1,2}:\d{2}$/.test(d.end)) return jsonResponse({ success: false, error: "dnd.end 格式应为 HH:MM (UTC)" }, 400);
+          const [eh, em] = d.end.split(':').map(Number);
+          if (eh > 23 || em > 59) return jsonResponse({ success: false, error: "dnd.end 时间超出范围" }, 400);
+          dnd.end = d.end;
+        }
+        settings.dnd = dnd;
+      }
       await saveSettings(db, settings);
       return jsonResponse({ success: true, settings });
     }
@@ -675,7 +718,7 @@ async function performScheduledCheck(env) {
     const result = await tryAdvanceAndGetRepo(db);
     if (!result) return;
 
-    await checkSingleRepo(env, result.item, false);
+    await checkSingleRepo(env, result.item, false, settings.dnd);
   }
 }
 
@@ -694,11 +737,17 @@ async function startNewCycle(db) {
 }
 
 // ==================== 核心检测逻辑 ====================
-async function checkSingleRepo(env, item, forceTrigger) {
+async function checkSingleRepo(env, item, forceTrigger, dndSettings) {
   const db = env.DB;
   let repo = item.repo;
   let targetUrl = item.custom_url;
   const now = new Date().toISOString();
+
+  // 免打扰判断：手动测试(forceTrigger)不受限，始终可发送通知
+  let dndActive = false;
+  if (!forceTrigger) {
+    dndActive = isDndActive(dndSettings);
+  }
 
   let errorInfo = null;
   if (!forceTrigger) {
@@ -729,7 +778,8 @@ async function checkSingleRepo(env, item, forceTrigger) {
         res = await fetchWithTimeout(`https://api.github.com/repos/${repo}/releases/latest`, { headers }, TIMEOUT_GITHUB);
 
         if (res.status === 404) {
-          if (!forceTrigger) {
+          // 免打扰时段内不处理 404（不落库、不告警），待免打扰结束后的下一轮巡检再判定并补发告警，避免被标记 permanent 后永久丢失
+          if (!forceTrigger && !dndActive) {
             errorInfo = {
               count: ALERT_FAILURE_COUNT,
               lastError: "404 — 仓库可能已删除、改名或转为私有",
@@ -798,6 +848,10 @@ async function checkSingleRepo(env, item, forceTrigger) {
     // 仅在「未成功通知过当前版本」且「重试次数未达上限」时才推送；forceTrigger 始终推送
     const needNotify = forceTrigger || (!alreadyNotified && attempts < MAX_NOTIFY_ATTEMPTS);
     if (needNotify) {
+      // 免打扰时段：保留已观测到的版本（tag 已记录），不发送；免打扰结束后下一轮检查自动补发
+      if (dndActive) {
+        return { repo, success: true, dnd_hold: true };
+      }
       const template = await getNotificationTemplate(db);
       const repoName = repo.split("/")[1] || repo;
       const payload = buildPayload(template.update, {
@@ -849,7 +903,8 @@ async function checkSingleRepo(env, item, forceTrigger) {
       errorInfo.lastTime = now;
       errorInfo.successCount = 0;
 
-      if (errorInfo.count >= ALERT_FAILURE_COUNT && !errorInfo.alertedAt) {
+      // 免打扰时段内不发送异常告警，也不标记 alertedAt，免打扰结束后下一轮会重试
+      if (errorInfo.count >= ALERT_FAILURE_COUNT && !errorInfo.alertedAt && !dndActive) {
         const template = await getNotificationTemplate(db);
         await sendAlertNotification(env, buildPayload(template.alert, { repo, message: err.message }));
         errorInfo.alertedAt = now;
@@ -1131,6 +1186,23 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
       <input type="number" id="cycleInterval" class="input" min="1" max="48" value="8">
       <span style="font-size:0.75rem;color:var(--md-sys-color-on-surface-variant);">两轮检测之间等待</span>
     </div>
+    <hr style="border:none;border-top:1px solid var(--md-sys-color-outline-variant);margin:8px 0 16px;">
+    <h3 style="font-size:1rem;font-weight:500;margin-bottom:8px;">🔕 免打扰模式</h3>
+    <p class="help-text">在指定时段（UTC）内不发送任何通知；若此间有版本更新，将保留并在免打扰结束后自动补发。</p>
+    <div class="form-group">
+      <label for="dndEnabled">启用免打扰</label>
+      <input type="checkbox" id="dndEnabled">
+      <span id="dndStatus" style="font-size:0.8rem;color:var(--md-sys-color-on-surface-variant);"></span>
+    </div>
+    <div class="form-group">
+      <label for="dndStart">开始时间 (UTC)</label>
+      <input type="time" id="dndStart" class="input" value="23:00">
+    </div>
+    <div class="form-group">
+      <label for="dndEnd">结束时间 (UTC)</label>
+      <input type="time" id="dndEnd" class="input" value="08:00">
+      <span style="font-size:0.75rem;color:var(--md-sys-color-on-surface-variant);">结束≤开始表示跨午夜</span>
+    </div>
     <div class="form-group">
       <button class="btn btn-filled" onclick="saveSettings()">💾 保存设置</button>
       <span id="settingsSaved" style="color:var(--md-sys-color-primary);display:none;">✅ 已保存</span>
@@ -1221,10 +1293,34 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const { settings, state } = await res.json();
         document.getElementById('repoInterval').value = settings.repoIntervalMinutes;
         document.getElementById('cycleInterval').value = settings.cycleIntervalHours;
+        const dnd = settings.dnd || { enabled: false, start: "23:00", end: "08:00" };
+        document.getElementById('dndEnabled').checked = !!dnd.enabled;
+        document.getElementById('dndStart').value = dnd.start || "23:00";
+        document.getElementById('dndEnd').value = dnd.end || "08:00";
+        updateDndStatus(settings);
         renderState(state, settings);
       } catch (e) {
         document.getElementById('stateInfo').innerHTML = '❌ 加载失败 — ' + esc(e.message || '请检查 D1 绑定与 API Key');
       }
+    }
+    function isDndActiveClient(dnd) {
+      if (!dnd || !dnd.enabled) return false;
+      const parse = (s) => { const m=/^(\d{1,2}):(\d{2})$/.exec(s||""); if(!m) return null; const h=+m[1],mi=+m[2]; if(h>23||mi>59) return null; return h*60+mi; };
+      const s = parse(dnd.start), e = parse(dnd.end);
+      if (s===null||e===null||s===e) return false;
+      const d = new Date();
+      const cur = d.getUTCHours()*60 + d.getUTCMinutes();
+      if (s<e) return cur>=s && cur<e;
+      return cur>=s || cur<e;
+    }
+    function updateDndStatus(settings) {
+      const el = document.getElementById('dndStatus');
+      if (!el) return;
+      const dnd = settings.dnd;
+      if (!dnd || !dnd.enabled) { el.textContent = '（已关闭）'; el.style.color = 'var(--md-sys-color-on-surface-variant)'; return; }
+      if (dnd.start === dnd.end) { el.textContent = '⚠️ 开始=结束，免打扰未生效（请设为不同时间）'; el.style.color = 'var(--md-sys-color-error)'; return; }
+      if (isDndActiveClient(dnd)) { el.textContent = '🔕 当前处于免打扰时段'; el.style.color = 'var(--md-sys-color-error)'; }
+      else { el.textContent = '🟢 当前可通知（'+dnd.start+'–'+dnd.end+' UTC 免打扰）'; el.style.color = 'var(--md-sys-color-primary)'; }
     }
     function renderState(state, settings) {
       const el = document.getElementById('stateInfo');
@@ -1251,14 +1347,22 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (state.cycleStartTime) html += '<br>本轮开始: '+esc(state.cycleStartTime.slice(0,19).replace('T',' '));
         if (state.cycleEndTime) html += '，结束: '+esc(state.cycleEndTime.slice(0,19).replace('T',' '));
       }
+      if (settings.dnd && settings.dnd.enabled && isDndActiveClient(settings.dnd)) {
+        html += '<br>🔕 免打扰时段中，更新将延后通知';
+      }
       el.innerHTML = html;
     }
 
     async function saveSettings() {
       const repoIntervalMinutes = parseInt(document.getElementById('repoInterval').value,10);
       const cycleIntervalHours = parseInt(document.getElementById('cycleInterval').value,10);
+      const dnd = {
+        enabled: document.getElementById('dndEnabled').checked,
+        start: document.getElementById('dndStart').value || "23:00",
+        end: document.getElementById('dndEnd').value || "08:00"
+      };
       try {
-        const res = await apiFetch('/api/save-settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ repoIntervalMinutes, cycleIntervalHours }) });
+        const res = await apiFetch('/api/save-settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ repoIntervalMinutes, cycleIntervalHours, dnd }) });
         const data = await res.json();
         if (data.success) { document.getElementById('settingsSaved').style.display = 'inline'; setTimeout(() => document.getElementById('settingsSaved').style.display = 'none', 2600); loadSettings(); }
         else alert('错误: ' + data.error);
