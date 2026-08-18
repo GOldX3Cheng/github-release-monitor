@@ -26,20 +26,20 @@ const DEFAULT_NOTIFICATION_TEMPLATE = {
   },
   alert: {
     title: "🚨 监控异常告警",
-    content: "{repo}\n{message}",
+    content: "{repo}\n原因：{reason}\n判定：{judge_reason}",
     platform: "GitHub Monitor",
     username: "System Alert",
     eventLabel: "🚨",
     taskType: "异常通知",
     taskStatus: "Failed",
     filename: "{repo}",
-    error: "{message}"
+    error: "{reason}"
   }
 };
 
 const ALLOWED_TEMPLATE_VARS = {
   update: ['repo', 'repo_name', 'url', 'repo_url', 'tag'],
-  alert:  ['repo', 'message']
+  alert:  ['repo', 'message', 'reason', 'judge_reason']
 };
 
 const ALERT_FAILURE_COUNT = 5;
@@ -605,14 +605,16 @@ export default {
       const errorsMap = await getErrorsMap(db);
       const enriched = repos.map(item => {
         const err = errorsMap[item.repo];
-        let health = "ok", lastError = "";
+        let health = "ok", lastError = "", reason = "", judgeReason = "";
         if (err) {
           if (err.permanent) health = "dead";
           else if (err.count > 0) health = "warning";
           else if (err.alertedAt) health = "recovered";
           lastError = err.lastError || "";
+          reason = err.lastReason || "";
+          judgeReason = err.judgeReason || "";
         }
-        return { ...item, health, lastError };
+        return { ...item, health, lastError, reason, judgeReason };
       });
       return jsonResponse(enriched);
     }
@@ -876,6 +878,7 @@ async function checkSingleRepo(env, item, forceTrigger, dndSettings) {
   };
   if (env.GITHUB_TOKEN) githubHeaders["Authorization"] = `Bearer ${env.GITHUB_TOKEN}`;
 
+  let data, fromCache = false, res;
   try {
     let etagCache = null;
     if (!forceTrigger) {
@@ -883,7 +886,6 @@ async function checkSingleRepo(env, item, forceTrigger, dndSettings) {
       if (etagStr) try { etagCache = JSON.parse(etagStr); } catch {}
     }
 
-    let data, fromCache = false, res;
     const headers = { ...githubHeaders };
     if (etagCache?.etag && oldTag !== null) headers["If-None-Match"] = etagCache.etag;
 
@@ -894,15 +896,19 @@ async function checkSingleRepo(env, item, forceTrigger, dndSettings) {
         if (res.status === 404) {
           // 免打扰时段内不处理 404（不落库、不告警），待免打扰结束后的下一轮巡检再判定并补发告警，避免被标记 permanent 后永久丢失
           if (!forceTrigger && !dndActive) {
+            const cause404 = 'GitHub 返回 404：仓库可能已删除、改名或转为私有';
             errorInfo = {
               count: ALERT_FAILURE_COUNT,
-              lastError: "404 — 仓库可能已删除、改名或转为私有",
+              lastError: cause404,
+              lastReason: cause404,
+              lastCategory: '404',
+              judgeReason: 'GitHub API 返回 404，直接判定为永久失效（状态异常：dead）',
               lastTime: now,
               permanent: true
             };
             await saveErrorsForRepo(db, repo, errorInfo);
             const template = await getNotificationTemplate(db);
-            await sendAlertNotification(env, db, buildPayload(template.alert, { repo, message: "404" }));
+            await sendAlertNotification(env, db, buildPayload(template.alert, { repo, message: cause404, reason: cause404, judge_reason: errorInfo.judgeReason }));
           }
           return { repo, success: false };
         }
@@ -989,16 +995,20 @@ async function checkSingleRepo(env, item, forceTrigger, dndSettings) {
     return { repo, success: true };
   } catch (err) {
     if (!forceTrigger) {
+      const cls = classifyError(err, res);
       errorInfo = errorInfo || { count: 0 };
       errorInfo.count = (errorInfo.count || 0) + 1;
       errorInfo.lastError = err.message;
+      errorInfo.lastReason = cls.reason;
+      errorInfo.lastCategory = cls.category;
       errorInfo.lastTime = now;
       errorInfo.successCount = 0;
 
+      const judgeReason = '连续 ' + errorInfo.count + ' 次检测失败（告警阈值 ' + ALERT_FAILURE_COUNT + '）：' + cls.reason;
       // 免打扰时段内不发送异常告警，也不标记 alertedAt，免打扰结束后下一轮会重试
       if (errorInfo.count >= ALERT_FAILURE_COUNT && !errorInfo.alertedAt && !dndActive) {
         const template = await getNotificationTemplate(db);
-        await sendAlertNotification(env, db, buildPayload(template.alert, { repo, message: err.message }));
+        await sendAlertNotification(env, db, buildPayload(template.alert, { repo, message: err.message, reason: cls.reason, judge_reason: judgeReason }));
         errorInfo.alertedAt = now;
       }
 
@@ -1027,10 +1037,10 @@ function decayErrorCountForRepo(errorInfo, now) {
     if (successCount >= RECOVERED_SUCCESS_THRESHOLD) {
       return null;
     } else {
-      return { ...errorInfo, count: 0, lastError: "", lastTime: now, successCount };
+      return { ...errorInfo, count: 0, lastError: "", lastReason: "", judgeReason: "", lastTime: now, successCount };
     }
   } else {
-    return { ...errorInfo, count: newCount, lastError: "", lastTime: now, successCount: 0 };
+    return { ...errorInfo, count: newCount, lastError: "", lastReason: "", judgeReason: "", lastTime: now, successCount: 0 };
   }
 }
 
@@ -1137,6 +1147,18 @@ function buildPayload(template, vars) {
     payload[key] = value;
   }
   return payload;
+}
+
+// 把原始异常归类为"导致状态异常的原因"（结构化根因）
+function classifyError(err, res) {
+  const status = res && res.status ? res.status : null;
+  const msg = (err && err.message) ? err.message : '';
+  if (status === 404) return { reason: 'GitHub 返回 404：仓库可能已删除、改名或转为私有', category: '404' };
+  if (status === 403 || status === 429) return { reason: 'GitHub API 限流或无权限（' + status + '）', category: 'rate_limit' };
+  if (status >= 500) return { reason: 'GitHub 服务器错误（' + status + '）', category: 'server_error' };
+  if (/fetch|timeout|timed out|network|ECONN|abort|Failed to fetch/i.test(msg)) return { reason: '网络请求失败或超时，无法连接 GitHub', category: 'network' };
+  if (/JSON|parse|Unexpected token|SyntaxError/i.test(msg)) return { reason: '响应解析失败，GitHub 返回了非预期内容', category: 'parse' };
+  return { reason: msg || '未知错误', category: 'unknown' };
 }
 
 // ==================== 完整前端面板 ====================
@@ -1624,7 +1646,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (item.health==='dead') { badgeClass = 'badge-dead'; badgeText = '失效'; }
         else if (item.health==='warning') { badgeClass = 'badge-warn'; badgeText = '异常'; }
         else if (item.health==='recovered') { badgeClass = 'badge-recov'; badgeText = '观察中'; }
-        return '<tr><td><span class="badge '+badgeClass+'" title="'+escAttr(item.lastError||'')+'">'+badgeText+'</span></td><td>'+esc(item.repo)+'</td><td><input class="note-input" data-repo="'+escAttr(item.repo)+'" value="'+escAttr(item.note||'')+'" placeholder="备注..."></td><td><code style="background:var(--md-sys-color-surface-variant);padding:2px 6px;border-radius:4px;">'+esc(item.custom_url)+'</code></td><td><button class="btn btn-error delete-repo-btn" data-repo="'+escAttr(item.repo)+'" style="height:32px;padding:0 12px;font-size:0.7rem;">删除</button></td></tr>';
+        const tip = (item.lastError||'') + (item.reason ? ' | 原因：'+item.reason : '') + (item.judgeReason ? ' | 判定：'+item.judgeReason : '');
+        return '<tr><td><span class="badge '+badgeClass+'" title="'+escAttr(tip)+'">'+badgeText+'</span></td><td>'+esc(item.repo)+'</td><td><input class="note-input" data-repo="'+escAttr(item.repo)+'" value="'+escAttr(item.note||'')+'" placeholder="备注..."></td><td><code style="background:var(--md-sys-color-surface-variant);padding:2px 6px;border-radius:4px;">'+esc(item.custom_url)+'</code></td><td><button class="btn btn-error delete-repo-btn" data-repo="'+escAttr(item.repo)+'" style="height:32px;padding:0 12px;font-size:0.7rem;">删除</button></td></tr>';
       }).join('');
     }
 
