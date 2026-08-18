@@ -70,8 +70,8 @@ function sanitizeTemplate(obj) {
   return obj;
 }
 
-// ==================== 免打扰模式（时间按 Worker 运行时 UTC 解释） ====================
-// 判断当前是否处于免打扰时段；start/end 为 "HH:MM"，end<=start 视为跨午夜。
+// ==================== 免打扰模式（时间按北京时间 UTC+8 解释） ====================
+// 判断当前是否处于免打扰时段；start/end 为 "HH:MM"（北京时间），end<=start 视为跨午夜。
 function parseHHMM(str) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(str || "");
   if (!m) return null;
@@ -80,12 +80,17 @@ function parseHHMM(str) {
   return h * 60 + mi;
 }
 
+// 将当前 UTC 时刻换算为北京分钟数（0~1439），用于免打扰判断
+function beijingMinutes(now = new Date()) {
+  return (now.getUTCHours() * 60 + now.getUTCMinutes() + 8 * 60) % (24 * 60);
+}
+
 function isDndActive(dnd, now = new Date()) {
   if (!dnd || !dnd.enabled) return false;
   const s = parseHHMM(dnd.start);
   const e = parseHHMM(dnd.end);
   if (s === null || e === null || s === e) return false;
-  const cur = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const cur = beijingMinutes(now);
   if (s < e) return cur >= s && cur < e;
   return cur >= s || cur < e;
 }
@@ -479,13 +484,13 @@ export default {
           dnd.enabled = d.enabled;
         }
         if (d.start !== undefined) {
-          if (!/^\d{1,2}:\d{2}$/.test(d.start)) return jsonResponse({ success: false, error: "dnd.start 格式应为 HH:MM (UTC)" }, 400);
+          if (!/^\d{1,2}:\d{2}$/.test(d.start)) return jsonResponse({ success: false, error: "dnd.start 格式应为 HH:MM（北京时间）" }, 400);
           const [sh, sm] = d.start.split(':').map(Number);
           if (sh > 23 || sm > 59) return jsonResponse({ success: false, error: "dnd.start 时间超出范围" }, 400);
           dnd.start = d.start;
         }
         if (d.end !== undefined) {
-          if (!/^\d{1,2}:\d{2}$/.test(d.end)) return jsonResponse({ success: false, error: "dnd.end 格式应为 HH:MM (UTC)" }, 400);
+          if (!/^\d{1,2}:\d{2}$/.test(d.end)) return jsonResponse({ success: false, error: "dnd.end 格式应为 HH:MM（北京时间）" }, 400);
           const [eh, em] = d.end.split(':').map(Number);
           if (eh > 23 || em > 59) return jsonResponse({ success: false, error: "dnd.end 时间超出范围" }, 400);
           dnd.end = d.end;
@@ -1069,55 +1074,56 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
   <link rel="icon" href="data:image/x-icon;base64,${FAVICON_B64}">
   <style>
     :root {
-      --md-sys-color-primary: #6750A4;
+      /* Home Assistant 风格：主色 HA 蓝，浅灰背景 + 白卡 */
+      --md-sys-color-primary: #03A9F4;
       --md-sys-color-on-primary: #FFFFFF;
-      --md-sys-color-primary-container: #EADDFF;
-      --md-sys-color-on-primary-container: #21005D;
-      --md-sys-color-secondary: #625B71;
+      --md-sys-color-primary-container: #E1F5FE;
+      --md-sys-color-on-primary-container: #01579B;
+      --md-sys-color-secondary: #0288D1;
       --md-sys-color-on-secondary: #FFFFFF;
-      --md-sys-color-secondary-container: #E8DEF8;
-      --md-sys-color-on-secondary-container: #1D192B;
-      --md-sys-color-error: #B3261E;
+      --md-sys-color-secondary-container: #E1F5FE;
+      --md-sys-color-on-secondary-container: #01579B;
+      --md-sys-color-error: #B00020;
       --md-sys-color-on-error: #FFFFFF;
-      --md-sys-color-error-container: #F9DEDC;
+      --md-sys-color-error-container: #FDECEA;
       --md-sys-color-on-error-container: #410E0B;
-      --md-sys-color-background: #FFFBFE;
-      --md-sys-color-on-background: #1C1B1F;
-      --md-sys-color-surface: #FFFBFE;
-      --md-sys-color-on-surface: #1C1B1F;
-      --md-sys-color-surface-variant: #E7E0EC;
-      --md-sys-color-on-surface-variant: #49454F;
-      --md-sys-color-outline: #79747E;
-      --md-sys-color-outline-variant: #CAC4D0;
-      --md-sys-color-surface-1: #F7F2FA;
-      --md-sys-color-surface-2: #F2ECF5;
-      --md-sys-elevation-1: 0 1px 2px rgba(0,0,0,0.3), 0 1px 3px 1px rgba(0,0,0,0.15);
-      --md-sys-elevation-2: 0 1px 2px rgba(0,0,0,0.3), 0 2px 6px 2px rgba(0,0,0,0.15);
+      --md-sys-color-background: #FAFAFA;
+      --md-sys-color-on-background: #212121;
+      --md-sys-color-surface: #FFFFFF;
+      --md-sys-color-on-surface: #212121;
+      --md-sys-color-surface-variant: #F1F3F4;
+      --md-sys-color-on-surface-variant: #5F6368;
+      --md-sys-color-outline: #DADCE0;
+      --md-sys-color-outline-variant: #ECEFF1;
+      --md-sys-color-surface-1: #F5F5F5;
+      --md-sys-color-surface-2: #EEEEEE;
+      --md-sys-elevation-1: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+      --md-sys-elevation-2: 0 2px 8px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --md-sys-color-primary: #D0BCFF;
-        --md-sys-color-on-primary: #381E72;
-        --md-sys-color-primary-container: #4F378B;
-        --md-sys-color-on-primary-container: #EADDFF;
-        --md-sys-color-secondary: #CCC2DC;
-        --md-sys-color-on-secondary: #332D41;
-        --md-sys-color-secondary-container: #4A4458;
-        --md-sys-color-on-secondary-container: #E8DEF8;
-        --md-sys-color-error: #F2B8B5;
-        --md-sys-color-on-error: #601410;
-        --md-sys-color-error-container: #8C1D18;
+        --md-sys-color-primary: #29B6F6;
+        --md-sys-color-on-primary: #012A36;
+        --md-sys-color-primary-container: #003B4A;
+        --md-sys-color-on-primary-container: #A6E7FF;
+        --md-sys-color-secondary: #4FC3F7;
+        --md-sys-color-on-secondary: #012A36;
+        --md-sys-color-secondary-container: #003B4A;
+        --md-sys-color-on-secondary-container: #A6E7FF;
+        --md-sys-color-error: #CF6679;
+        --md-sys-color-on-error: #381E1E;
+        --md-sys-color-error-container: #5C1A17;
         --md-sys-color-on-error-container: #F9DEDC;
-        --md-sys-color-background: #1C1B1F;
+        --md-sys-color-background: #121212;
         --md-sys-color-on-background: #E6E1E5;
-        --md-sys-color-surface: #1C1B1F;
+        --md-sys-color-surface: #1E1E1E;
         --md-sys-color-on-surface: #E6E1E5;
-        --md-sys-color-surface-variant: #49454F;
-        --md-sys-color-on-surface-variant: #CAC4D0;
-        --md-sys-color-outline: #938F99;
-        --md-sys-color-outline-variant: #49454F;
-        --md-sys-color-surface-1: #242329;
-        --md-sys-color-surface-2: #2A2830;
+        --md-sys-color-surface-variant: #2A2A2A;
+        --md-sys-color-on-surface-variant: #B0B0B0;
+        --md-sys-color-outline: #3C4043;
+        --md-sys-color-outline-variant: #2A2A2A;
+        --md-sys-color-surface-1: #242424;
+        --md-sys-color-surface-2: #2C2C2C;
       }
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1132,7 +1138,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
       margin: 0 auto;
     }
     .app-header { text-align: center; margin: 24px 0 32px; }
-    .app-header h1 { font-size: 2rem; font-weight: 500; }
+    .app-header h1 { font-size: 2rem; font-weight: 500; color: var(--md-sys-color-primary); }
     .version {
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
@@ -1140,7 +1146,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     }
     .subtitle { color: var(--md-sys-color-on-surface-variant); font-size: 0.875rem; margin-top: 4px; }
     .card {
-      background: var(--md-sys-color-surface); border-radius: 12px; padding: 24px;
+      background: var(--md-sys-color-surface); border-radius: 16px; padding: 24px;
       margin-bottom: 24px; box-shadow: var(--md-sys-elevation-1);
       border: 1px solid var(--md-sys-color-outline-variant);
     }
@@ -1218,6 +1224,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
   <div id="authError" class="auth-error">⛔ 鉴权失败：请提供有效的 API Key</div>
   <header class="app-header">
     <h1>🔍 GitHub Release 监控</h1>
+    <div class="subtitle" id="clock">北京时间 --:--:--</div>
   </header>
 
   <div class="card">
@@ -1234,18 +1241,18 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     </div>
     <hr style="border:none;border-top:1px solid var(--md-sys-color-outline-variant);margin:8px 0 16px;">
     <h3 style="font-size:1rem;font-weight:500;margin-bottom:8px;">🔕 免打扰模式</h3>
-    <p class="help-text">在指定时段（UTC）内不发送任何通知；若此间有版本更新，将保留并在免打扰结束后自动补发。</p>
+    <p class="help-text">在指定时段（北京时间 UTC+8）内不发送任何通知；若此间有版本更新，将保留并在免打扰结束后自动补发。</p>
     <div class="form-group">
       <label for="dndEnabled">启用免打扰</label>
       <input type="checkbox" id="dndEnabled">
       <span id="dndStatus" style="font-size:0.8rem;color:var(--md-sys-color-on-surface-variant);"></span>
     </div>
     <div class="form-group">
-      <label for="dndStart">开始时间 (UTC)</label>
+      <label for="dndStart">开始时间 (北京时间)</label>
       <input type="time" id="dndStart" class="input" value="23:00">
     </div>
     <div class="form-group">
-      <label for="dndEnd">结束时间 (UTC)</label>
+      <label for="dndEnd">结束时间 (北京时间)</label>
       <input type="time" id="dndEnd" class="input" value="08:00">
       <span style="font-size:0.75rem;color:var(--md-sys-color-on-surface-variant);">结束≤开始表示跨午夜</span>
     </div>
@@ -1314,6 +1321,19 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     if (params.get('key')) { API_KEY = params.get('key'); sessionStorage.setItem('api_key', API_KEY); window.history.replaceState({}, document.title, window.location.origin + window.location.pathname); }
     function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
     function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    // 将 UTC ISO 时间字符串格式化为北京时间（UTC+8）显示；withZone=false 时只返回 "YYYY-MM-DD HH:MM:SS"
+    function fmtBJ(iso, withZone = true) {
+      const d = (typeof iso === 'string') ? new Date(iso) : iso;
+      if (!d || isNaN(d.getTime())) return '';
+      const b = new Date(d.getTime() + 8 * 3600 * 1000);
+      const p = n => String(n).padStart(2, '0');
+      const s = b.getUTCFullYear() + '-' + p(b.getUTCMonth() + 1) + '-' + p(b.getUTCDate()) + ' ' + p(b.getUTCHours()) + ':' + p(b.getUTCMinutes()) + ':' + p(b.getUTCSeconds());
+      return withZone ? s + ' (北京时间)' : s;
+    }
+    function tickClock() {
+      const el = document.getElementById('clock');
+      if (el) el.textContent = '北京时间 ' + fmtBJ(new Date(), false);
+    }
 
     async function apiFetch(url, options = {}) {
       const headers = options.headers || {};
@@ -1333,6 +1353,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
     document.addEventListener('DOMContentLoaded', () => {
       if (!API_KEY) document.getElementById('authError').style.display = 'block';
+      tickClock(); setInterval(tickClock, 1000);
       document.getElementById('repoTableBody').addEventListener('click', (e) => {
         const btn = e.target.closest('.delete-repo-btn');
         if (btn) { const repo = btn.dataset.repo; if (repo) deleteRepo(repo); }
@@ -1366,7 +1387,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
       const s = parse(dnd.start), e = parse(dnd.end);
       if (s===null||e===null||s===e) return false;
       const d = new Date();
-      const cur = d.getUTCHours()*60 + d.getUTCMinutes();
+      const cur = (d.getUTCHours()*60 + d.getUTCMinutes() + 8*60) % (24*60);
       if (s<e) return cur>=s && cur<e;
       return cur>=s || cur<e;
     }
@@ -1377,7 +1398,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
       if (!dnd || !dnd.enabled) { el.textContent = '（已关闭）'; el.style.color = 'var(--md-sys-color-on-surface-variant)'; return; }
       if (dnd.start === dnd.end) { el.textContent = '⚠️ 开始=结束，免打扰未生效（请设为不同时间）'; el.style.color = 'var(--md-sys-color-error)'; return; }
       if (isDndActiveClient(dnd)) { el.textContent = '🔕 当前处于免打扰时段'; el.style.color = 'var(--md-sys-color-error)'; }
-      else { el.textContent = '🟢 当前可通知（'+dnd.start+'–'+dnd.end+' UTC 免打扰）'; el.style.color = 'var(--md-sys-color-primary)'; }
+      else { el.textContent = '🟢 当前可通知（北京时间 '+dnd.start+'–'+dnd.end+' 免打扰）'; el.style.color = 'var(--md-sys-color-primary)'; }
     }
     function renderState(state, settings) {
       const el = document.getElementById('stateInfo');
@@ -1395,14 +1416,14 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
           nextIn = Math.max(0, Math.ceil(settings.repoIntervalMinutes - elapsed));
         }
         html = '🟢 <b>检测中</b> — 进度: '+state.currentIndex+'/'+total+' | 下一个仓库约 '+nextIn+' 分钟后检查';
-        if (state.lastRepoCheckTime) html += '<br>上次检查: '+esc(state.lastRepoCheckTime.slice(0,19).replace('T',' '));
+        if (state.lastRepoCheckTime) html += '<br>上次检查: '+esc(fmtBJ(state.lastRepoCheckTime));
       } else {
         const cycleMs = settings.cycleIntervalHours*3600000;
         const waitSince = state.cycleEndTime ? new Date(state.cycleEndTime) : (state.cycleStartTime ? new Date(state.cycleStartTime) : new Date());
         const next = new Date(waitSince.getTime()+cycleMs);
-        html = '💤 <b>等待中</b> — 预计下次: '+esc(next.toISOString().slice(0,19).replace('T',' '))+' UTC';
-        if (state.cycleStartTime) html += '<br>本轮开始: '+esc(state.cycleStartTime.slice(0,19).replace('T',' '));
-        if (state.cycleEndTime) html += '，结束: '+esc(state.cycleEndTime.slice(0,19).replace('T',' '));
+        html = '💤 <b>等待中</b> — 预计下次: '+esc(fmtBJ(next.toISOString()));
+        if (state.cycleStartTime) html += '<br>本轮开始: '+esc(fmtBJ(state.cycleStartTime));
+        if (state.cycleEndTime) html += '，结束: '+esc(fmtBJ(state.cycleEndTime));
       }
       if (settings.dnd && settings.dnd.enabled && isDndActiveClient(settings.dnd)) {
         html += '<br>🔕 免打扰时段中，更新将延后通知';
