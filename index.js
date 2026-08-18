@@ -43,7 +43,6 @@ const ALLOWED_TEMPLATE_VARS = {
 };
 
 const ALERT_FAILURE_COUNT = 5;
-const MAX_TEST_REPOS = 1;
 const RECOVERED_SUCCESS_THRESHOLD = 3;
 const ALERTED_AT_EXPIRE_HOURS = 24;
 
@@ -673,7 +672,7 @@ export default {
       return jsonResponse({ success: true, imported, skipped, invalid, invalidLines, repos: updated });
     }
 
-    // 手动测试
+    // 手动测试：随机选一个仓库，跑完整「检测 + 发送通知」逻辑（用于排查 bug / 验证整条链路）
     if (url.pathname === "/api/test") {
       if (Date.now() - lastTestTime < 10000) {
         return jsonResponse({ error: "请求过于频繁，请 10 秒后再试" }, 429);
@@ -681,13 +680,22 @@ export default {
       lastTestTime = Date.now();
 
       const repos = await getStoredRepos(db);
-      const toTest = repos.slice(0, MAX_TEST_REPOS);
-      const results = [];
-      for (const item of toTest) {
-        const res = await checkSingleRepo(env, item, true);
-        results.push({ repo: res.repo, success: res.success, push_ok: res.push_ok });
+      if (!repos.length) {
+        return jsonResponse({ tested: 0, total: 0, picked: null, results: [], error: "暂无监控仓库，请先添加至少一个仓库" });
       }
-      return jsonResponse({ tested: toTest.length, total: repos.length, results });
+      // 随机选一个仓库，确保每次点测试都覆盖不同仓库，更利于发现潜在 bug
+      const idx = Math.floor(Math.random() * repos.length);
+      const item = repos[idx];
+      const res = await checkSingleRepo(env, item, true);
+      const result = {
+        repo: res.repo,
+        success: res.success,
+        push_ok: res.push_ok === true,
+        is_new: !!res.is_new,
+        dnd_hold: !!res.dnd_hold,
+        skipped: !!res.skipped
+      };
+      return jsonResponse({ tested: 1, total: repos.length, picked: item.repo, results: [result] });
     }
 
     // 触发新周期
@@ -1308,7 +1316,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
   <div class="card">
     <h2>🧪 手动操作</h2>
     <div style="display:flex;gap:12px;flex-wrap:wrap;">
-      <button class="btn btn-tonal" id="testBtn" onclick="runTest()">🎯 立即测试一个</button>
+      <button class="btn btn-tonal" id="testBtn" onclick="runTest()">🎯 立即测试（随机一个仓库）</button>
       <button class="btn btn-outlined" onclick="triggerCycle()">🔄 触发新一轮检测</button>
     </div>
     <div id="loadingText" style="display:none;margin-top:12px;color:var(--md-sys-color-on-surface-variant);">⏳ 正在执行，请稍候...</div>
@@ -1549,13 +1557,26 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
     async function runTest() {
       const btn = document.getElementById('testBtn'), loading = document.getElementById('loadingText'), resultBlock = document.getElementById('resultBlock');
-      btn.disabled = true; loading.style.display = 'block'; resultBlock.textContent = '// 执行中...';
+      btn.disabled = true; loading.style.display = 'block'; resultBlock.textContent = '// 随机选取一个仓库，跑完整「检测 + 发送通知」逻辑中...';
       try {
         const res = await apiFetch('/api/test');
         if (res.status === 429) {
           resultBlock.textContent = '请求过于频繁，请 10 秒后再试';
         } else {
-          resultBlock.textContent = JSON.stringify(await res.json(), null, 2);
+          const data = await res.json();
+          const sep = String.fromCharCode(10);
+          const lines = [];
+          lines.push('随机选中仓库: ' + (data.picked || '未知'));
+          lines.push('监控仓库总数: ' + (data.total || 0));
+          if (data.results && data.results[0]) {
+            const r = data.results[0];
+            lines.push('检测成功: ' + (r.success ? '是' : '否'));
+            lines.push('通知已发送: ' + (r.push_ok ? '是' : '否'));
+            if (r.push_ok === false) lines.push('提示: 通知发送失败，请检查 WEBHOOK_URL / WEBHOOK_AUTH_TOKEN 配置');
+          }
+          lines.push('');
+          lines.push(JSON.stringify(data, null, 2));
+          resultBlock.textContent = lines.join(sep);
         }
       }
       catch (e) { resultBlock.textContent = '请求失败: ' + e.message; }
