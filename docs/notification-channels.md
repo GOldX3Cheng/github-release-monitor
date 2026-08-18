@@ -7,6 +7,8 @@
 
 然后根据渠道要求，在管理面板的「通知模板」里调整消息字段即可。
 
+> ⚠️ **实测范围说明**：本文档中**仅「第 1 节 wxpush」渠道经过真实推送实测验证**（已成功收到推送、链路通畅）。其余渠道（Telegram、Discord、Slack、企业微信、钉钉、Bark 以及第 8 节自建 Webhook）均**仅依据各平台公开接口文档整理，未经真机推送实测**。实际对接时请按第 9 节方法自行测试，可能需要根据具体接口调整模板字段。
+
 ---
 
 ## 0. 先理解模板引擎
@@ -28,7 +30,7 @@
 
 ---
 
-## 1. 微信消息推送：wxpush（与项目同源，推荐）
+## 1. 微信消息推送：wxpush（与项目同源，推荐，✅ 已实测）
 
 本项目推送部分参考自 [frankiejun/wxpush](https://github.com/frankiejun/wxpush)（MIT）。wxpush 是一个极简免费的**微信模板消息推送服务**，支持微信原生弹窗 + 声音提醒。
 
@@ -86,7 +88,7 @@ wxpush 的 `/wxsend` 接口读取 `title` 与 `content` 字段，与本项目默
 
 ---
 
-## 2. Telegram Bot
+## 2. Telegram Bot（未实测）
 
 ### 获取 Webhook 地址
 
@@ -119,7 +121,7 @@ wxpush 的 `/wxsend` 接口读取 `title` 与 `content` 字段，与本项目默
 
 ---
 
-## 3. Discord Webhook
+## 3. Discord Webhook（未实测）
 
 ### 获取 Webhook 地址
 
@@ -149,7 +151,7 @@ Discord 的 Webhook 读取顶层 `content` 字段，支持 Markdown：
 
 ---
 
-## 4. Slack Incoming Webhook
+## 4. Slack Incoming Webhook（未实测）
 
 ### 获取 Webhook 地址
 
@@ -179,7 +181,7 @@ Slack 读取顶层 `text` 字段，支持 Markdown：
 
 ---
 
-## 5. 企业微信群机器人
+## 5. 企业微信群机器人（未实测）
 
 ### 获取 Webhook 地址
 
@@ -213,7 +215,7 @@ Slack 读取顶层 `text` 字段，支持 Markdown：
 
 ---
 
-## 6. 钉钉群机器人
+## 6. 钉钉群机器人（未实测）
 
 ### 获取 Webhook 地址
 
@@ -247,7 +249,7 @@ Slack 读取顶层 `text` 字段，支持 Markdown：
 
 ---
 
-## 7. Bark（iOS 推送）
+## 7. Bark（iOS 推送）（未实测）
 
 ### 获取 Webhook 地址
 
@@ -279,7 +281,7 @@ Bark 读取顶层 `title` 与 `body` 字段：
 
 ---
 
-## 8. 自建 / 其他 Webhook
+## 8. 自建 / 其他 Webhook（未实测，通用说明）
 
 只要目标接口接收 **POST JSON**，都可以对接：
 
@@ -308,7 +310,7 @@ Bark 读取顶层 `title` 与 `body` 字段：
 
 ## 9. 测试与排错
 
-1. **面板测试**：打开管理面板 → 点击 **「测试」**，会强制对第一个仓库推送一次（10 秒内限一次）。测试成功表示链路通畅；
+1. **面板测试**：打开管理面板 → 点击 **「🎯 立即测试（随机一个仓库）」**，会随机选一个仓库、强制完整跑一遍检测 + 推送逻辑一次（10 秒内限一次）。测试成功表示链路通畅；
 2. **查看返回**：面板会显示测试结果，包括 `push_ok`（Webhook 是否推送成功）；
 3. **常见失败**：
    - `push_ok: false`：检查 `WEBHOOK_URL` 是否正确、渠道是否要求 `Authorization`（wxpush 需要）、模板字段是否与渠道要求一致；
