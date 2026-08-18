@@ -304,6 +304,39 @@ async function saveNotificationTemplate(db, template) {
     .bind(JSON.stringify(template)).run();
 }
 
+// ==================== 通知通道（配置驱动单通道，按部署隔离） ====================
+async function getNotifyChannel(db) {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'system:notify_channel'").first();
+  if (!row) return null;
+  try { return sanitizeNotifyChannel(JSON.parse(row.value)); }
+  catch { return null; }
+}
+async function saveNotifyChannel(db, channel) {
+  const clean = sanitizeNotifyChannel(channel);
+  if (!clean) return false;
+  await db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('system:notify_channel', ?)").bind(JSON.stringify(clean)).run();
+  return true;
+}
+function sanitizeNotifyChannel(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const url = typeof raw.url === 'string' ? raw.url.trim() : '';
+  if (!/^https?:\/\//i.test(url)) return null;            // 必须是 http(s) 绝对地址
+  const method = (typeof raw.method === 'string' ? raw.method.toUpperCase() : 'POST');
+  if (!['GET','POST','PUT','PATCH','DELETE'].includes(method)) return null;
+  const headers = {};
+  if (raw.headers && typeof raw.headers === 'object') {
+    for (const [k, v] of Object.entries(raw.headers)) {
+      if (typeof k === 'string' && (typeof v === 'string' || typeof v === 'number')) headers[k] = String(v);
+    }
+  }
+  if (!headers['Content-Type'] && !headers['content-type']) headers['Content-Type'] = 'application/json';
+  const bodyTemplate = typeof raw.bodyTemplate === 'string' && raw.bodyTemplate.length > 0
+    ? raw.bodyTemplate
+    : '{"title":"{title}","content":"{content}"}';
+  const enabled = raw.enabled !== false;
+  return { type: 'custom_http', enabled, url, method, headers, bodyTemplate };
+}
+
 async function getStoredRepos(db) {
   const { results } = await db.prepare("SELECT repo, custom_url, note FROM repos").all();
   return (results || []).map(r => ({ ...r, note: r.note || '' }));
@@ -542,6 +575,28 @@ export default {
         alert:  { ...DEFAULT_NOTIFICATION_TEMPLATE.alert,  ...cleaned.alert }
       };
       return jsonResponse({ success: true, config: merged });
+    }
+
+    // 通知通道（配置驱动单通道）
+    if (url.pathname === "/api/get-notify-channel") {
+      const ch = await getNotifyChannel(db);
+      let masked = null;
+      if (ch) {
+        masked = { ...ch };
+        if (masked.headers && masked.headers['Authorization']) {
+          masked.headers = { ...masked.headers, Authorization: '***' };
+        }
+      }
+      return jsonResponse({ channel: masked });
+    }
+
+    if (url.pathname === "/api/save-notify-channel" && request.method === "POST") {
+      if (!body) return jsonResponse({ error: "Missing body" }, 400);
+      const clean = sanitizeNotifyChannel(body);
+      if (!clean) return jsonResponse({ success: false, error: "无效的通知通道配置：url 须为 http(s) 绝对地址，method 须为 GET/POST/PUT/PATCH/DELETE" }, 400);
+      await saveNotifyChannel(db, clean);
+      const outHeaders = clean.headers.Authorization ? { ...clean.headers, Authorization: '***' } : clean.headers;
+      return jsonResponse({ success: true, channel: { ...clean, headers: outHeaders } });
     }
 
     // 仓库管理
@@ -847,7 +902,7 @@ async function checkSingleRepo(env, item, forceTrigger, dndSettings) {
             };
             await saveErrorsForRepo(db, repo, errorInfo);
             const template = await getNotificationTemplate(db);
-            await sendAlertNotification(env, buildPayload(template.alert, { repo, message: "404" }));
+            await sendAlertNotification(env, db, buildPayload(template.alert, { repo, message: "404" }));
           }
           return { repo, success: false };
         }
@@ -913,31 +968,9 @@ async function checkSingleRepo(env, item, forceTrigger, dndSettings) {
       }
       const template = await getNotificationTemplate(db);
       const repoName = repo.split("/")[1] || repo;
-      const payload = buildPayload(template.update, {
-        repo,
-        repo_name: repoName,
-        url: targetUrl,
-        repo_url: targetUrl,
-        tag: latestTag || oldTag || "测试"
-      });
-
-      let pushOk = false;
-      for (let attempt = 0; attempt <= 1; attempt++) {
-        try {
-          const pushRes = await fetchWithTimeout(env.WEBHOOK_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...(env.WEBHOOK_AUTH_TOKEN ? { Authorization: env.WEBHOOK_AUTH_TOKEN } : {}) },
-            body: JSON.stringify(payload)
-          }, TIMEOUT_WEBHOOK);
-          if (pushRes.ok) {
-            pushOk = true;
-            break;
-          }
-        } catch (e) {
-          if (attempt === 1) break;
-        }
-        if (attempt < 1) await new Promise(r => setTimeout(r, 1000));
-      }
+      const notifVars = { repo, repo_name: repoName, url: targetUrl, repo_url: targetUrl, tag: latestTag || oldTag || "测试" };
+      const fields = buildPayload(template.update, notifVars);
+      const pushOk = await deliverNotification(env, db, fields, { rawVars: notifVars });
 
       if (pushOk) {
         // 推送成功：标记该版本已通知并清零重试计数
@@ -965,7 +998,7 @@ async function checkSingleRepo(env, item, forceTrigger, dndSettings) {
       // 免打扰时段内不发送异常告警，也不标记 alertedAt，免打扰结束后下一轮会重试
       if (errorInfo.count >= ALERT_FAILURE_COUNT && !errorInfo.alertedAt && !dndActive) {
         const template = await getNotificationTemplate(db);
-        await sendAlertNotification(env, buildPayload(template.alert, { repo, message: err.message }));
+        await sendAlertNotification(env, db, buildPayload(template.alert, { repo, message: err.message }));
         errorInfo.alertedAt = now;
       }
 
@@ -1044,14 +1077,50 @@ function fetchWithTimeout(url, options, timeoutMs) {
   return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeout));
 }
 
-async function sendAlertNotification(env, payload) {
-  try {
-    await fetchWithTimeout(env.WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(env.WEBHOOK_AUTH_TOKEN ? { Authorization: env.WEBHOOK_AUTH_TOKEN } : {}) },
-      body: JSON.stringify(payload)
-    }, TIMEOUT_WEBHOOK);
-  } catch (e) { /* 忽略 */ }
+async function sendAlertNotification(env, db, payload) {
+  try { await deliverNotification(env, db, payload, { isAlert: true }); } catch (e) { /* 忽略 */ }
+}
+
+async function deliverNotification(env, db, fields, opts = {}) {
+  const channel = await getNotifyChannel(db);
+  let url, method, headers, bodyStr;
+  if (channel && channel.enabled && channel.url) {
+    // 走配置驱动通道（别人的/自己的都在各自的 D1 配置里）
+    url = channel.url;
+    method = channel.method;
+    headers = { ...channel.headers };
+    const mergedVars = { ...fields, ...(opts.rawVars || {}) };
+    bodyStr = substituteVars(channel.bodyTemplate, mergedVars);
+  } else {
+    // 回退：沿用 WEBHOOK_URL + WEBHOOK_AUTH_TOKEN secret（兼容现有部署）
+    url = env.WEBHOOK_URL;
+    method = "POST";
+    headers = { "Content-Type": "application/json", ...(env.WEBHOOK_AUTH_TOKEN ? { Authorization: env.WEBHOOK_AUTH_TOKEN } : {}) };
+    bodyStr = JSON.stringify({ title: fields.title, content: fields.content });
+  }
+  if (!url) return false;
+  let pushOk = false;
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, {
+        method,
+        headers,
+        body: method === "GET" ? undefined : bodyStr
+      }, TIMEOUT_WEBHOOK);
+      if (res.ok) { pushOk = true; break; }
+    } catch (e) {
+      if (attempt === 1) break;
+    }
+    if (attempt < 1) await new Promise(r => setTimeout(r, 1000));
+  }
+  return pushOk;
+}
+function substituteVars(template, vars) {
+  return template.replace(VAR_REGEX, (_, name) => {
+    let val = vars[name] !== undefined ? vars[name] : '{' + name + '}';
+    if (typeof val === 'string') val = val.replace(SANITIZE_REGEX, '');
+    return val;
+  });
 }
 
 function buildPayload(template, vars) {
@@ -1285,6 +1354,38 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
   </div>
 
   <div class="card">
+    <h2>🔔 通知渠道配置</h2>
+    <p class="help-text">通知发送目的地。留空则回退使用 Cloudflare  secret 的 WEBHOOK_URL / WEBHOOK_AUTH_TOKEN。每个部署读自己的配置，互不干扰。</p>
+    <div class="form-group">
+      <label for="chEnabled">启用自定义通道</label>
+      <input type="checkbox" id="chEnabled" checked>
+    </div>
+    <div class="form-group">
+      <label for="chUrl">请求 URL</label>
+      <input type="text" id="chUrl" class="input" placeholder="https://example.com/webhook" style="flex:1;min-width:240px;">
+    </div>
+    <div class="form-group">
+      <label for="chMethod">请求方法</label>
+      <select id="chMethod" class="input">
+        <option>POST</option><option>GET</option><option>PUT</option><option>PATCH</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="chToken">Authorization 令牌</label>
+      <input type="text" id="chToken" class="input" placeholder="留空则不带 Authorization 头" style="flex:1;min-width:240px;">
+    </div>
+    <div class="form-group">
+      <label for="chBody">请求体模板</label>
+    </div>
+    <textarea id="chBody" spellcheck="false" placeholder='{"title":"{title}","content":"{content}"}' style="width:100%;min-height:90px;font-family:monospace;font-size:0.8rem;"></textarea>
+    <p class="help-text">可用变量：<code>{title}</code> <code>{content}</code> <code>{repo_name}</code> <code>{url}</code> <code>{tag}</code> <code>{message}</code> 等（取自上方通知内容模板的解析结果）。</p>
+    <div class="form-group" style="margin-top:12px;">
+      <button class="btn btn-filled" onclick="saveNotifyChannel()">💾 保存通道</button>
+      <span id="chSaved" style="color:var(--md-sys-color-primary);display:none;">✅ 已保存</span>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>➕ 添加新监控项目</h2>
     <div class="form-group">
       <input type="text" id="repoInput" class="input" placeholder="例如: vuejs/core" onkeydown="if(event.key==='Enter')addRepo()">
@@ -1370,7 +1471,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const input = e.target.closest('.note-input');
         if (input) saveNote(input.dataset.repo, input.value);
       });
-      loadSettings(); loadNotificationConfig(); loadRepos();
+      loadSettings(); loadNotificationConfig(); loadNotifyChannel(); loadRepos();
     });
 
     async function loadSettings() {
@@ -1467,6 +1568,37 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const data = await res.json();
         if (data.success) { document.getElementById('notifSaved').style.display = 'inline'; setTimeout(() => document.getElementById('notifSaved').style.display = 'none', 2600); }
         else alert('保存失败: ' + data.error);
+      } catch (e) { alert('保存失败: ' + e.message); }
+    }
+
+    async function loadNotifyChannel() {
+      try {
+        const res = await apiFetch('/api/get-notify-channel');
+        const data = await res.json();
+        const ch = data.channel;
+        if (!ch) return;
+        document.getElementById('chEnabled').checked = ch.enabled !== false;
+        document.getElementById('chUrl').value = ch.url || '';
+        const m = document.getElementById('chMethod');
+        if (ch.method) { for (const o of m.options) { if (o.value === ch.method) { o.selected = true; break; } } }
+        document.getElementById('chToken').value = (ch.headers && ch.headers['Authorization'] && ch.headers['Authorization'] !== '***') ? ch.headers['Authorization'] : '';
+        document.getElementById('chBody').value = ch.bodyTemplate || '';
+      } catch (e) { /* 忽略 */ }
+    }
+    async function saveNotifyChannel() {
+      const enabled = document.getElementById('chEnabled').checked;
+      const url = document.getElementById('chUrl').value.trim();
+      const method = document.getElementById('chMethod').value;
+      const token = document.getElementById('chToken').value.trim();
+      const bodyTemplate = document.getElementById('chBody').value;
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = token;
+      const payload = { enabled, url, method, headers, bodyTemplate };
+      try {
+        const res = await apiFetch('/api/save-notify-channel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) { document.getElementById('chSaved').style.display = 'inline'; setTimeout(() => { document.getElementById('chSaved').style.display = 'none'; }, 2000); }
+        else if (data.error) alert(data.error);
       } catch (e) { alert('保存失败: ' + e.message); }
     }
 
