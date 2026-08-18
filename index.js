@@ -1383,7 +1383,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     }
     function isDndActiveClient(dnd) {
       if (!dnd || !dnd.enabled) return false;
-      const parse = (s) => { const m=/^(\d{1,2}):(\d{2})$/.exec(s||""); if(!m) return null; const h=+m[1],mi=+m[2]; if(h>23||mi>59) return null; return h*60+mi; };
+      const parse = (s) => { const m=/^(\\d{1,2}):(\\d{2})$/.exec(s||""); if(!m) return null; const h=+m[1],mi=+m[2]; if(h>23||mi>59) return null; return h*60+mi; };
       const s = parse(dnd.start), e = parse(dnd.end);
       if (s===null||e===null||s===e) return false;
       const d = new Date();
@@ -1520,7 +1520,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const data = await res.json();
         if (data.success) {
           let msg = '✅ 导入完成：新增 ' + data.imported + ' 个，跳过重复 ' + data.skipped + ' 个，非法 ' + data.invalid + ' 行';
-          if (data.invalidLines && data.invalidLines.length) msg += '\n⚠️ 非法行示例：' + data.invalidLines.slice(0,3).join(' | ');
+          if (data.invalidLines && data.invalidLines.length) msg += '\\n⚠️ 非法行示例：' + data.invalidLines.slice(0,3).join(' | ');
           resultEl.textContent = msg; resultEl.style.color = 'var(--md-sys-color-primary)';
           renderTable(data.repos); loadSettings();
           fileInput.value = '';
