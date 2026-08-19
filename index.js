@@ -434,6 +434,7 @@ export default {
     try {
       await initDB(db);
       ctx.waitUntil(performScheduledCheck(env));
+      try { ctx.waitUntil(checkCloudflareQuotas(env)); } catch (e) { console.error("配额监控调度失败", e); }
     } catch (e) {
       console.error("定时任务初始化失败", e);
     }
@@ -617,6 +618,25 @@ export default {
         return { ...item, health, lastError, reason, judgeReason };
       });
       return jsonResponse(enriched);
+    }
+
+    if (url.pathname === "/api/get-quota") {
+      try {
+        const cfg = await getQuotaConfig(db);
+        const todayUTC = new Date().toISOString().slice(0, 10);
+        const usage = await fetchCloudflareUsage(env, todayUTC);
+        const state = await getQuotaAlertState(db);
+        if (!usage) return jsonResponse({ error: "配额查询失败（CF_API_TOKEN 未配置或查询出错）" }, 502);
+        const metrics = QUOTA_METRICS.map(m => {
+          const limit = cfg.limits[m.key] || FREE_TIER_LIMITS[m.key];
+          const used = usage[m.key] || 0;
+          const ratio = limit > 0 ? used / limit : 0;
+          return { key: m.key, name: m.name, used: used, limit: limit, percent: Math.round(ratio * 100), level: state.levels[m.key] || 'normal' };
+        });
+        return jsonResponse({ date: todayUTC, enabled: cfg.enabled, metrics: metrics });
+      } catch (e) {
+        return jsonResponse({ error: "配额查询异常: " + e.message }, 500);
+      }
     }
 
     if (url.pathname === "/api/add-repo" && request.method === "POST") {
@@ -1159,6 +1179,130 @@ function classifyError(err, res) {
   if (/fetch|timeout|timed out|network|ECONN|abort|Failed to fetch/i.test(msg)) return { reason: '网络请求失败或超时，无法连接 GitHub', category: 'network' };
   if (/JSON|parse|Unexpected token|SyntaxError/i.test(msg)) return { reason: '响应解析失败，GitHub 返回了非预期内容', category: 'parse' };
   return { reason: msg || '未知错误', category: 'unknown' };
+}
+
+// ==================== Cloudflare 配额监控 ====================
+// 监控本部署所在 Cloudflare 账户的免费额度用量：达到 80% 发预警、100% 发超限通知。
+// 通知文案精简："{name}额度达{pct}%（{used}/{limit}）"。
+// 去重：按指标记录等级（normal/warn/over），仅在等级跨越时发一次通知，避免每 5 分钟刷屏。
+// 配额超限属于运维级紧急事件（监控可能因此停摆），故不走免打扰（DND）抑制。
+const CF_ACCOUNT_ID_FALLBACK = "cad20ea1689e9bd3d559496d3f5617c0";
+const QUOTA_WARN = 0.8;
+const QUOTA_OVER = 1.0;
+// 免费版默认额度（可在 D1 settings 键 system:quota_config 里用 limits 覆盖）
+const FREE_TIER_LIMITS = {
+  workers_requests: 100000,
+  d1_rows_read: 5000000,
+  d1_rows_written: 100000
+};
+const QUOTA_METRICS = [
+  { key: 'workers_requests', name: 'Workers请求' },
+  { key: 'd1_rows_read',    name: 'D1读行' },
+  { key: 'd1_rows_written', name: 'D1写行' }
+];
+
+function quotaLevelFor(ratio) {
+  if (ratio >= QUOTA_OVER) return 'over';
+  if (ratio >= QUOTA_WARN) return 'warn';
+  return 'normal';
+}
+
+async function getQuotaConfig(db) {
+  try {
+    const row = await db.prepare("SELECT value FROM settings WHERE key = 'system:quota_config'").first();
+    if (row && row.value) {
+      const cfg = JSON.parse(row.value);
+      return { enabled: cfg.enabled !== false, limits: Object.assign({}, FREE_TIER_LIMITS, cfg.limits || {}) };
+    }
+  } catch (e) { /* ignore */ }
+  return { enabled: true, limits: Object.assign({}, FREE_TIER_LIMITS) };
+}
+
+async function getQuotaAlertState(db) {
+  try {
+    const row = await db.prepare("SELECT value FROM settings WHERE key = 'system:quota_alerts'").first();
+    if (row && row.value) return JSON.parse(row.value);
+  } catch (e) { /* ignore */ }
+  return { levels: {}, pending: [] };
+}
+
+async function saveQuotaAlertState(db, state) {
+  await db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('system:quota_alerts', ?)").bind(JSON.stringify(state)).run();
+}
+
+async function fetchCloudflareUsage(env, todayUTC) {
+  const token = env.CF_API_TOKEN;
+  if (!token) { console.warn('CF_API_TOKEN 未配置，跳过配额监控'); return null; }
+  const accountId = env.CF_ACCOUNT_ID || CF_ACCOUNT_ID_FALLBACK;
+  const query = 'query { viewer { accounts(filter: { accountTag: "' + accountId + '" }) {'
+    + ' workersInvocationsAdaptive(limit: 1, filter: { date_geq: "' + todayUTC + '" }) { sum { requests } }'
+    + ' d1AnalyticsAdaptiveGroups(limit: 1, filter: { date_geq: "' + todayUTC + '" }) { sum { rowsRead rowsWritten } }'
+    + ' } } }';
+  let res;
+  try {
+    res = await fetchWithTimeout("https://api.cloudflare.com/client/v4/graphql", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ query })
+    }, TIMEOUT_WEBHOOK);
+  } catch (e) { console.error('配额查询请求失败', e); return null; }
+  if (!res || !res.ok) { console.error('配额查询 HTTP 状态异常', res && res.status); return null; }
+  let json;
+  try { json = await res.json(); } catch (e) { console.error('配额查询响应解析失败', e); return null; }
+  if (json.errors && json.errors.length) { console.error('配额查询 GraphQL 错误', JSON.stringify(json.errors)); return null; }
+  const acc = json && json.data && json.data.viewer && json.data.viewer.accounts && json.data.viewer.accounts[0];
+  if (!acc) return null;
+  const w = (acc.workersInvocationsAdaptive && acc.workersInvocationsAdaptive[0] && acc.workersInvocationsAdaptive[0].sum) || {};
+  const d = (acc.d1AnalyticsAdaptiveGroups && acc.d1AnalyticsAdaptiveGroups[0] && acc.d1AnalyticsAdaptiveGroups[0].sum) || {};
+  return {
+    workers_requests: Number(w.requests) || 0,
+    d1_rows_read: Number(d.rowsRead) || 0,
+    d1_rows_written: Number(d.rowsWritten) || 0
+  };
+}
+
+async function checkCloudflareQuotas(env) {
+  const db = env.DB;
+  try {
+    const cfg = await getQuotaConfig(db);
+    if (!cfg.enabled) return;
+    const todayUTC = new Date().toISOString().slice(0, 10);
+    const usage = await fetchCloudflareUsage(env, todayUTC);
+    if (!usage) return;
+    const state = await getQuotaAlertState(db);
+    let changed = false;
+    for (const m of QUOTA_METRICS) {
+      const limit = cfg.limits[m.key] || FREE_TIER_LIMITS[m.key];
+      const used = usage[m.key] || 0;
+      if (!limit || limit <= 0) continue;
+      const ratio = used / limit;
+      const level = quotaLevelFor(ratio);
+      const prev = state.levels[m.key] || 'normal';
+      if (level === prev) continue;
+      state.levels[m.key] = level;
+      changed = true;
+      if (level === 'warn' || level === 'over') {
+        const pct = Math.round(ratio * 100);
+        const content = m.name + "额度达" + pct + "%（" + used + "/" + limit + "）";
+        const title = (level === 'over' ? "🚨 CF配额超限 " : "⚠️ CF配额预警 ") + pct + "%";
+        const fields = {
+          title: title,
+          content: content,
+          eventLabel: level === 'over' ? "🚨" : "⚠️",
+          taskStatus: level === 'over' ? "超限" : "预警",
+          error: m.name + " " + pct + "%",
+          repo: m.name,
+          message: content,
+          reason: content,
+          judge_reason: ""
+        };
+        try { await sendAlertNotification(env, db, fields); } catch (e) { console.error('配额通知发送失败', e); }
+      }
+    }
+    if (changed) await saveQuotaAlertState(db, state);
+  } catch (e) {
+    console.error('配额监控异常', e);
+  }
 }
 
 // ==================== 完整前端面板 ====================

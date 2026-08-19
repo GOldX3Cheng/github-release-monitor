@@ -119,3 +119,17 @@ Webhook 推送参考 [frankiejun/wxpush](https://github.com/frankiejun/wxpush)�
 ## License
 
 [MIT](LICENSE) © github-release-monitor contributors
+
+## Cloudflare 配额监控
+
+该功能监控本部署所在 Cloudflare 账户的免费额度用量，避免监控自身因额度耗尽而停摆。
+
+- **监控的 3 项免费额度（Free 计划，UTC 0 点每日重置）**：
+  - Workers 请求：100,000 / 日
+  - D1 读行：5,000,000 / 日
+  - D1 写行：100,000 / 日
+- **预警与超限**：用量达到 **80%** 时发送预警通知，达到 **100%** 时发送超限通知（文案示例：`Workers请求额度达80%（80000/100000）`）。配额超限属于运维级紧急事件，不走免打扰（DND）抑制。
+- **去重逻辑**：按指标记录等级（normal/warn/over），仅在等级发生跨越时发送一次通知，避免每 5 分钟被重复刷屏（状态持久化于 D1 `settings` 键 `system:quota_alerts`）。
+- **配置要求**：需在 Cloudflare 后台为 Worker 添加 secret **`CF_API_TOKEN`**，其值为具备 Workers / Analytics 读取权限的 API 令牌；账号 ID 默认固定，也可用 `env.CF_ACCOUNT_ID` 覆盖。
+- **人工核对**：访问 `GET /api/get-quota?key=API_KEY` 可返回当日各项额度用量、占比与当前等级。
+- **额度覆盖**：默认额度可在 D1 `settings` 键 `system:quota_config` 中以 JSON（`{"enabled":true,"limits":{"workers_requests":100000,"d1_rows_read":5000000,"d1_rows_written":100000}}`）覆盖，便于非免费计划或自定义阈值。
