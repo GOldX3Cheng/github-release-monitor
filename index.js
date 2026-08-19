@@ -1171,151 +1171,211 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>GitHub Release 监控控制台</title>
   <link rel="icon" href="data:image/x-icon;base64,${FAVICON_B64}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
-      /* Home Assistant 风格：主色 HA 蓝，浅灰背景 + 白卡 */
-      --md-sys-color-primary: #03A9F4;
-      --md-sys-color-on-primary: #FFFFFF;
-      --md-sys-color-primary-container: #E1F5FE;
-      --md-sys-color-on-primary-container: #01579B;
-      --md-sys-color-secondary: #0288D1;
-      --md-sys-color-on-secondary: #FFFFFF;
-      --md-sys-color-secondary-container: #E1F5FE;
-      --md-sys-color-on-secondary-container: #01579B;
-      --md-sys-color-error: #B00020;
-      --md-sys-color-on-error: #FFFFFF;
-      --md-sys-color-error-container: #FDECEA;
-      --md-sys-color-on-error-container: #410E0B;
-      --md-sys-color-background: #FAFAFA;
-      --md-sys-color-on-background: #212121;
-      --md-sys-color-surface: #FFFFFF;
-      --md-sys-color-on-surface: #212121;
-      --md-sys-color-surface-variant: #F1F3F4;
-      --md-sys-color-on-surface-variant: #5F6368;
-      --md-sys-color-outline: #DADCE0;
-      --md-sys-color-outline-variant: #ECEFF1;
-      --md-sys-color-surface-1: #F5F5F5;
-      --md-sys-color-surface-2: #EEEEEE;
-      --md-sys-elevation-1: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
-      --md-sys-elevation-2: 0 2px 8px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);
+      /* ===== MD2 调色板：主色 Blue 700 #1976D2 ===== */
+      --md-primary-50:#E3F2FD; --md-primary-100:#BBDEFB; --md-primary-200:#90CAF9; --md-primary-300:#64B5F6; --md-primary-400:#42A5F5; --md-primary-500:#2196F3; --md-primary-600:#1E88E5; --md-primary-700:#1976D2; --md-primary-800:#1565C0; --md-primary-900:#0D47A1;
+      --md-primary:#1976D2; --md-on-primary:#FFFFFF; --md-primary-variant:#1565C0; --md-primary-light:#E3F2FD;
+      --md-secondary:#00897B; --md-on-secondary:#FFFFFF; --md-secondary-variant:#00796B;
+      --md-background:#FAFAFA; --md-surface:#FFFFFF; --md-surface-2:#F5F5F5;
+      --md-on-background:#212121; --md-on-surface:#212121; --md-on-surface-medium:#5F6368; --md-on-surface-disabled:rgba(33,33,33,0.38); --md-on-surface-disabled-bg:rgba(33,33,33,0.12);
+      --md-divider:#E0E0E0; --md-outline:#BDBDBD; --md-outline-focused:#1976D2;
+      --md-error:#D32F2F; --md-on-error:#FFFFFF; --md-error-light:#FDECEA;
+      --radius-card:8px; --radius-button:4px; --radius-input:4px; --radius-fab:50%; --radius-chip:4px;
+      --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:28px; --space-8:32px; --space-9:36px; --space-10:40px; --space-11:44px; --space-12:48px;
+      --font-base:"Roboto","Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+      --font-mono:"Roboto Mono","JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      --elev-0:none;
+      --elev-1:0 1px 3px rgba(0,0,0,0.12),0 1px 2px rgba(0,0,0,0.24);
+      --elev-2:0 3px 6px rgba(0,0,0,0.16),0 3px 6px rgba(0,0,0,0.23);
+      --elev-4:0 10px 20px rgba(0,0,0,0.19),0 6px 6px rgba(0,0,0,0.23);
+      --elev-6:0 6px 10px rgba(0,0,0,0.16),0 1px 18px rgba(0,0,0,0.22);
+      --elev-8:0 14px 28px rgba(0,0,0,0.25),0 10px 10px rgba(0,0,0,0.22);
+      --elev-16:0 16px 24px rgba(0,0,0,0.22),0 6px 30px rgba(0,0,0,0.30);
+      --elev-24:0 24px 38px rgba(0,0,0,0.25),0 9px 46px rgba(0,0,0,0.12);
+      --ease-standard:cubic-bezier(0.4,0,0.2,1); --dur-fast:150ms; --dur-base:200ms;
+
+      /* 兼容旧 inline style 仍引用的 --md-sys-color-* 变量 */
+      --md-sys-color-primary:#1976D2; --md-sys-color-on-primary:#FFFFFF;
+      --md-sys-color-primary-container:#E3F2FD; --md-sys-color-on-primary-container:#01579B;
+      --md-sys-color-secondary:#00897B; --md-sys-color-on-secondary:#FFFFFF;
+      --md-sys-color-secondary-container:#E0F2F1; --md-sys-color-on-secondary-container:#004D40;
+      --md-sys-color-error:#D32F2F; --md-sys-color-on-error:#FFFFFF;
+      --md-sys-color-error-container:#FDECEA; --md-sys-color-on-error-container:#410E0B;
+      --md-sys-color-background:#FAFAFA; --md-sys-color-on-background:#212121;
+      --md-sys-color-surface:#FFFFFF; --md-sys-color-on-surface:#212121;
+      --md-sys-color-surface-variant:#F5F5F5; --md-sys-color-on-surface-variant:#5F6368;
+      --md-sys-color-outline:#BDBDBD; --md-sys-color-outline-variant:#E0E0E0;
+      --md-sys-color-surface-1:#F5F5F5; --md-sys-color-surface-2:#EEEEEE;
+      --md-sys-elevation-1:0 1px 3px rgba(0,0,0,0.12),0 1px 2px rgba(0,0,0,0.24);
+      --md-sys-elevation-2:0 3px 6px rgba(0,0,0,0.16),0 3px 6px rgba(0,0,0,0.23);
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --md-sys-color-primary: #29B6F6;
-        --md-sys-color-on-primary: #012A36;
-        --md-sys-color-primary-container: #003B4A;
-        --md-sys-color-on-primary-container: #A6E7FF;
-        --md-sys-color-secondary: #4FC3F7;
-        --md-sys-color-on-secondary: #012A36;
-        --md-sys-color-secondary-container: #003B4A;
-        --md-sys-color-on-secondary-container: #A6E7FF;
-        --md-sys-color-error: #CF6679;
-        --md-sys-color-on-error: #381E1E;
-        --md-sys-color-error-container: #5C1A17;
-        --md-sys-color-on-error-container: #F9DEDC;
-        --md-sys-color-background: #121212;
-        --md-sys-color-on-background: #E6E1E5;
-        --md-sys-color-surface: #1E1E1E;
-        --md-sys-color-on-surface: #E6E1E5;
-        --md-sys-color-surface-variant: #2A2A2A;
-        --md-sys-color-on-surface-variant: #B0B0B0;
-        --md-sys-color-outline: #3C4043;
-        --md-sys-color-outline-variant: #2A2A2A;
-        --md-sys-color-surface-1: #242424;
-        --md-sys-color-surface-2: #2C2C2C;
+        --md-background:#121212; --md-surface:#1E1E1E; --md-surface-2:#2A2A2A;
+        --md-on-background:#E6E1E5; --md-on-surface:#E6E1E5; --md-on-surface-medium:#B0B0B0;
+        --md-on-surface-disabled:rgba(255,255,255,0.38); --md-on-surface-disabled-bg:rgba(255,255,255,0.12);
+        --md-divider:#3C3C3C; --md-outline:#5A5A5A; --md-primary-light:#1A3A5C;
+        --md-primary:#42A5F5; --md-on-primary:#012A36; --md-primary-variant:#1E88E5; --md-primary-700:#1976D2;
+        --md-secondary:#4DB6AC; --md-on-secondary:#012A23;
+        --md-error:#CF6679; --md-on-error:#381E1E; --md-error-light:#5C1A17;
+        /* 兼容旧 inline style 变量（暗色） */
+        --md-sys-color-primary:#42A5F5; --md-sys-color-on-primary:#012A36;
+        --md-sys-color-primary-container:#1A3A5C; --md-sys-color-on-primary-container:#A6E7FF;
+        --md-sys-color-secondary:#4DB6AC; --md-sys-color-on-secondary:#012A23;
+        --md-sys-color-secondary-container:#003B4A; --md-sys-color-on-secondary-container:#A6E7FF;
+        --md-sys-color-error:#CF6679; --md-sys-color-on-error:#381E1E;
+        --md-sys-color-error-container:#5C1A17; --md-sys-color-on-error-container:#F9DEDC;
+        --md-sys-color-background:#121212; --md-sys-color-on-background:#E6E1E5;
+        --md-sys-color-surface:#1E1E1E; --md-sys-color-on-surface:#E6E1E5;
+        --md-sys-color-surface-variant:#2A2A2A; --md-sys-color-on-surface-variant:#B0B0B0;
+        --md-sys-color-outline:#5A5A5A; --md-sys-color-outline-variant:#2A2A2A;
+        --md-sys-color-surface-1:#242424; --md-sys-color-surface-2:#2C2C2C;
       }
+      .badge-ok { background:#1A3C28; color:#81C995; }
+      .badge-warn { background:#3C3014; color:#FDD663; }
+      .badge-dead { background:#3C1E1C; color:#F28B82; }
+      .badge-recov { background:#3C3414; color:#FDD663; }
+      .input, textarea, .note-input { background:#2A2A2A; }
+      .app-header { background:#1E1E1E; }
     }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; }
     html { font-size: 16px; }
     body {
-      font-family: "Google Sans Text", "Roboto", "Segoe UI", -apple-system, sans-serif;
-      background: var(--md-sys-color-background);
-      color: var(--md-sys-color-on-background);
+      font-family: var(--font-base);
+      background: var(--md-background);
+      color: var(--md-on-background);
       line-height: 1.5;
-      padding: 16px;
+      padding: var(--space-4);
       max-width: 1020px;
       margin: 0 auto;
     }
-    .app-header { text-align: center; margin: 24px 0 32px; }
-    .app-header h1 { font-size: 2rem; font-weight: 500; color: var(--md-sys-color-primary); }
+    code { background: var(--md-surface-2); padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono); font-size: 12px; }
+    /* MD2 AppBar（沿用现有 .app-header 结构，保留内部文字与 emoji） */
+    .app-header {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px; margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-6);
+      padding: 0 var(--space-4);
+      background: var(--md-surface);
+      border-bottom: 1px solid var(--md-divider);
+      box-shadow: var(--elev-4);
+    }
+    .app-header h1 { font-size: 20px; font-weight: 500; line-height: 28px; color: var(--md-on-surface); }
     .version {
-      background: var(--md-sys-color-primary-container);
-      color: var(--md-sys-color-on-primary-container);
-      padding: 2px 12px; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; margin-left: 8px;
+      display: inline-block; background: var(--md-primary-light); color: var(--md-primary-700);
+      padding: 2px 10px; border-radius: var(--radius-chip); font-size: 0.75rem; font-weight: 500;
     }
-    .subtitle { color: var(--md-sys-color-on-surface-variant); font-size: 0.875rem; margin-top: 4px; }
+    .subtitle { color: var(--md-on-surface-medium); font-size: 0.8125rem; }
+    /* MD2 Card：8px 圆角 + elevation 2 静止 / 4 hover，去掉描边 */
     .card {
-      background: var(--md-sys-color-surface); border-radius: 16px; padding: 24px;
-      margin-bottom: 24px; box-shadow: var(--md-sys-elevation-1);
-      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-surface); border-radius: var(--radius-card); padding: var(--space-6);
+      margin-bottom: var(--space-6); box-shadow: var(--elev-2); border: none;
+      transition: box-shadow var(--dur-base) var(--ease-standard), transform var(--dur-base) var(--ease-standard);
     }
-    .card h2 { font-size: 1.25rem; font-weight: 500; margin-bottom: 16px; }
-    .form-group { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-    .form-group label { min-width: 160px; font-size: 0.875rem; color: var(--md-sys-color-on-surface-variant); }
+    .card:hover { box-shadow: var(--elev-4); transform: translateY(-2px); }
+    .card h2 { font-size: 20px; font-weight: 500; line-height: 28px; margin-bottom: var(--space-4); }
+    .card h3 { font-size: 16px; font-weight: 500; line-height: 24px; margin-bottom: var(--space-2); }
+    .form-group { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-4); flex-wrap: wrap; }
+    .form-group label { min-width: 160px; font-size: 0.875rem; color: var(--md-on-surface-medium); }
+    /* MD2 TextField（outlined 风格） */
     .input {
-      padding: 8px 12px; border: 1px solid var(--md-sys-color-outline);
-      border-radius: 8px; background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);
-      font-size: 0.875rem; outline: none;
+      height: 56px; padding: 0 var(--space-3);
+      border: 1px solid var(--md-outline); border-radius: var(--radius-input);
+      background: var(--md-surface); color: var(--md-on-surface);
+      font-family: var(--font-base); font-size: 14px; line-height: 20px; outline: none;
+      transition: border-color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
     }
-    .input:focus { border-color: var(--md-sys-color-primary); border-width: 2px; padding: 7px 11px; }
+    .input::placeholder { color: var(--md-on-surface-medium); }
+    .input:hover { border-color: var(--md-on-surface); }
+    .input:focus { border-color: var(--md-primary); border-width: 2px; padding: 0 calc(var(--space-3) - 1px); }
+    .input:disabled { background: var(--md-surface-2); color: var(--md-on-surface-disabled); border-color: var(--md-divider); }
     input[type="number"] { width: 80px; text-align: center; }
     input[type="text"] { flex: 1; min-width: 200px; }
+    select.input { padding-right: var(--space-6); appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='%235F6368' d='M7 10l5 5 5-5z'/></svg>");
+      background-repeat: no-repeat; background-position: right 8px center; }
     textarea {
-      width: 100%; min-height: 180px; font-family: "JetBrains Mono", monospace; font-size: 0.8rem;
-      padding: 12px; border-radius: 8px; border: 1px solid var(--md-sys-color-outline);
-      background: var(--md-sys-color-surface-variant); color: var(--md-sys-color-on-surface);
-      resize: vertical; outline: none;
+      width: 100%; min-height: 180px; font-family: var(--font-mono); font-size: 13px; line-height: 20px;
+      padding: var(--space-3); border: 1px solid var(--md-outline); border-radius: var(--radius-input);
+      background: var(--md-surface); color: var(--md-on-surface); resize: vertical; outline: none;
     }
-    textarea:focus { border-color: var(--md-sys-color-primary); border-width: 2px; padding: 11px; }
-    .help-text { font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px; }
+    textarea:focus { border-color: var(--md-primary); border-width: 2px; padding: calc(var(--space-3) - 1px); }
+    .help-text { font-size: 0.75rem; color: var(--md-on-surface-medium); margin-bottom: var(--space-2); }
+    /* MD2 Button 三级（4px 圆角，hover/active/focus-visible/disabled） */
     .btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-      height: 40px; padding: 0 24px; border-radius: 9999px; font-family: inherit;
-      font-size: 0.875rem; font-weight: 500; border: none; cursor: pointer; transition: box-shadow 0.2s;
+      display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1);
+      height: 40px; min-width: 64px; padding: 0 var(--space-6);
+      border-radius: var(--radius-button); border: none;
+      font-family: var(--font-base); font-size: 14px; font-weight: 500; line-height: 20px; letter-spacing: 0.5px;
+      cursor: pointer; user-select: none; position: relative; overflow: hidden;
+      transition: box-shadow var(--dur-base) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-standard);
     }
-    .btn-filled { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
-    .btn-filled:hover { box-shadow: var(--md-sys-elevation-2); }
-    .btn-tonal { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
-    .btn-tonal:hover { box-shadow: var(--md-sys-elevation-2); }
-    .btn-outlined { background: transparent; border: 1px solid var(--md-sys-color-outline); color: var(--md-sys-color-primary); }
-    .btn-error { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
-    .btn-error:hover { box-shadow: var(--md-sys-elevation-2); }
-    .btn:disabled { opacity: 0.5; pointer-events: none; }
-    .table-wrapper { overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; min-width: 600px; }
-    th { text-align: left; padding: 12px 8px; border-bottom: 2px solid var(--md-sys-color-outline-variant); font-size: 0.75rem; text-transform: uppercase; color: var(--md-sys-color-on-surface-variant); }
-    td { padding: 10px 8px; border-bottom: 1px solid var(--md-sys-color-outline-variant); }
-    tbody tr:hover { background: var(--md-sys-color-surface-1); }
-    .badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
-    .badge-ok { background: #E6F4EA; color: #188038; }
-    .badge-warn { background: #FEF7E0; color: #E37400; }
-    .badge-dead { background: #FCE8E6; color: #D93025; }
-    .badge-recov { background: #FFFDE7; color: #9E7D00; }
-    .note-input { width: 100%; min-width: 120px; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--md-sys-color-outline, #ccc); border-radius: 6px; background: var(--md-sys-color-surface, #fff); color: inherit; font-size: 0.8rem; }
-    .note-input:focus { outline: 2px solid var(--md-sys-color-primary); outline-offset: 1px; }
-    @media (prefers-color-scheme: dark) {
-      .badge-ok { background: #1A3C28; color: #81C995; }
-      .badge-warn { background: #3C3014; color: #FDD663; }
-      .badge-dead { background: #3C1E1C; color: #F28B82; }
-      .badge-recov { background: #3C3414; color: #FDD663; }
+    .btn-filled { background: var(--md-primary); color: var(--md-on-primary); box-shadow: var(--elev-2); }
+    .btn-filled:hover { box-shadow: var(--elev-4); }
+    .btn-filled:active { background: var(--md-primary-variant); transform: scale(0.97); }
+    .btn-tonal { background: var(--md-secondary); color: var(--md-on-secondary); box-shadow: var(--elev-1); }
+    .btn-tonal:hover { background: var(--md-secondary-variant); box-shadow: var(--elev-2); }
+    .btn-tonal:active { transform: scale(0.97); }
+    .btn-outlined { background: transparent; border: 1px solid var(--md-outline); color: var(--md-primary); box-shadow: none; }
+    .btn-outlined:hover { background: var(--md-primary-light); border-color: var(--md-primary); }
+    .btn-outlined:active { background: var(--md-primary-100); transform: scale(0.97); }
+    .btn-error { background: var(--md-error); color: var(--md-on-error); box-shadow: var(--elev-1); }
+    .btn-error:hover { box-shadow: var(--elev-2); }
+    .btn-error:active { background: #B71C1C; transform: scale(0.97); }
+    .btn:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+    .btn:disabled, .btn[disabled] { background: var(--md-on-surface-disabled-bg) !important; color: var(--md-on-surface-disabled) !important; box-shadow: none !important; opacity: 1; pointer-events: none; cursor: not-allowed; }
+    /* 纯 CSS 水波纹（不依赖 JS，从元素中心扩散） */
+    .btn::after, .md-fab::after {
+      content: ""; position: absolute; left: 50%; top: 50%;
+      width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: 0;
+      transform: translate(-50%, -50%) scale(1); pointer-events: none;
     }
-    .info-panel {
-      background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
-      padding: 12px 16px; border-radius: 8px; margin-top: 16px; font-size: 0.85rem;
+    .btn:active::after, .md-fab:active::after { animation: md-ripple 480ms var(--ease-standard); }
+    @keyframes md-ripple { 0% { opacity: 0.32; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(28); } }
+    /* MD2 Table */
+    .table-wrapper { overflow-x: auto; margin: 0 calc(-1 * var(--space-2)); padding: 0 var(--space-2); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 600px; }
+    th { height: 52px; text-align: left; padding: 0 var(--space-3); border-bottom: 1px solid var(--md-divider); font-size: 12px; font-weight: 500; line-height: 16px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--md-on-surface-medium); }
+    td { height: 52px; padding: 0 var(--space-3); border-bottom: 1px solid var(--md-divider); color: var(--md-on-surface); vertical-align: middle; }
+    tbody tr { transition: background-color var(--dur-fast) var(--ease-standard); }
+    tbody tr:hover { background: var(--md-surface-2); }
+    /* MD2 Badge / Chip（4px 小圆角） */
+    .badge { display: inline-block; padding: 3px 10px; border-radius: var(--radius-chip); font-size: 11px; font-weight: 500; line-height: 16px; letter-spacing: 0.4px; }
+    .badge-ok { background: #E6F4EA; color: #1E7A34; }
+    .badge-warn { background: #FEF7E0; color: #B26A00; }
+    .badge-dead { background: #FCE8E6; color: #C5221F; }
+    .badge-recov { background: #FFFDE7; color: #8A6D00; }
+    .note-input { width: 100%; min-width: 120px; box-sizing: border-box; height: 36px; padding: 0 var(--space-2); border: 1px solid var(--md-outline); border-radius: var(--radius-input); background: var(--md-surface); color: var(--md-on-surface); font-size: 13px; outline: none; transition: border-color var(--dur-fast) var(--ease-standard); }
+    .note-input:focus { border-color: var(--md-primary); border-width: 2px; padding: 0 calc(var(--space-2) - 1px); }
+    .info-panel { background: var(--md-primary-light); color: var(--md-primary-700); padding: 12px 16px; border-radius: var(--radius-card); margin-top: var(--space-4); font-size: 0.85rem; }
+    .auth-error { background: var(--md-error-light); color: var(--md-error); padding: 12px 16px; border-radius: var(--radius-card); margin-bottom: var(--space-6); display: none; }
+    .result-block { background: var(--md-surface-2); padding: var(--space-4); border-radius: var(--radius-card); font-family: var(--font-mono); font-size: 12px; overflow-x: auto; margin-top: var(--space-4); white-space: pre-wrap; }
+    /* MD2 FAB（右下角圆形，承载「添加仓库」快捷入口） */
+    .md-fab {
+      position: fixed; right: var(--space-6); bottom: var(--space-6);
+      width: 56px; height: 56px; border-radius: var(--radius-fab);
+      display: flex; align-items: center; justify-content: center;
+      background: var(--md-primary); color: var(--md-on-primary); border: none; cursor: pointer;
+      font-size: 24px; box-shadow: var(--elev-6); overflow: hidden;
+      transition: box-shadow var(--dur-base) var(--ease-standard), transform var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard);
+      z-index: 200;
     }
-    .auth-error {
-      background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);
-      padding: 12px 16px; border-radius: 8px; margin-bottom: 24px; display: none;
-    }
+    .md-fab:hover { box-shadow: var(--elev-8); background: var(--md-primary-600); }
+    .md-fab:active { transform: scale(0.96); background: var(--md-primary-variant); }
+    .md-fab:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 3px; }
     @media (max-width: 768px) {
-      body { padding: 8px; }
-      .card { padding: 16px; }
+      body { padding: var(--space-2); }
+      .card { padding: var(--space-4); margin-bottom: var(--space-4); }
       .form-group { flex-direction: column; align-items: stretch; }
       .btn { width: 100%; }
+      .app-header { margin-left: calc(-1 * var(--space-2)); margin-right: calc(-1 * var(--space-2)); }
     }
-    .result-block {
-      background: var(--md-sys-color-surface-variant); padding: 16px; border-radius: 8px;
-      font-family: monospace; font-size: 0.75rem; overflow-x: auto; margin-top: 16px; white-space: pre-wrap;
+    @media (max-width: 599px) {
+      .md-fab { right: var(--space-4); bottom: var(--space-4); }
     }
   </style>
 </head>
@@ -1445,6 +1505,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     <div id="loadingText" style="display:none;margin-top:12px;color:var(--md-sys-color-on-surface-variant);">⏳ 正在执行，请稍候...</div>
     <pre id="resultBlock" class="result-block">// 操作结果显示在这里</pre>
   </div>
+
+  <button class="md-fab" title="添加监控仓库" onclick="document.getElementById('repoInput').focus()">➕</button>
 
   <script>
     const params = new URLSearchParams(window.location.search);
