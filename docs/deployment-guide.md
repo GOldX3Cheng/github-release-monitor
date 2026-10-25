@@ -174,6 +174,7 @@ npm run dev
 | 面板空白 / 部署失败 | 代码粘贴不全 | 重新全量复制 `index.js` 再保存部署 |
 | 通知延迟数小时 | Cron 每 5 分钟只查一个仓库 | 正常节奏，8 小时完成一轮，可在面板调检查间隔 |
 | 改了变量没生效 | 变量保存后未重新部署 | 变量页保存后点重新部署确认 |
+| 部署报 `reached the Workers Free limit of 5 cron triggers` | 免费计划每账号最多 5 个 cron trigger，已被别的 Worker 占满 | 删掉某个不常用的 Worker 的定时（设置 → 触发器），或改用外部定时调用 `/api/trigger-cycle` |
 
 ---
 
@@ -193,6 +194,12 @@ A：免费版够用。Workers 每日 10 万次请求；D1 每日 500 万行读�
 
 **Q：改了环境变量要重新部署吗？**
 A：要。变量保存后页面会提示重新部署，点确认，否则运行中的 Worker 仍读旧值。
+
+**Q：Cron 会被别的 Worker 抢走名额吗？**
+A：会。免费计划每账号只有 5 个 cron trigger，按「每条 cron 表达式」计数。若账号里已有监控类 Worker，本项目的 `*/5` 可能排不上，部署时报 cron 上限错误。可停用其他 Worker 的定时，或关闭本项目的 Cron 改用外部定时请求 `/api/trigger-cycle`。
+
+**Q：站内通知在多台设备上同步吗？**
+A：同步。通知存在 D1 的 `release_events` 表里，关闭操作是服务端删除，任何设备下次拉取都会同步消失；不再依赖浏览器 localStorage。
 
 ---
 
