@@ -1,0 +1,35 @@
+{
+  "name": "github-release-monitor",
+  "version": "1.0.0",
+  "description": "Monitor GitHub repository releases on Cloudflare Workers and send webhook notifications when a new release is published.",
+  "type": "module",
+  "private": false,
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "cloudflare": {
+    "bindings": {
+      "API_KEY": {
+        "description": "面板与接口的访问密钥，也是你的面板密码。随便编一串随机字符即可，例如 `openssl rand -hex 16` 的输出。之后用 `https://<域名>/?key=这个值` 打开面板。"
+      },
+      "WEBHOOK_URL": {
+        "description": "推送地址，必须能接收 POST JSON。微信 wxpush 形如 `https://你的服务/wxsend`。其它渠道（钉钉 / Telegram / 企业微信 / Bark）的填法见仓库 `docs/notification-channels.md`。"
+      },
+      "WEBHOOK_AUTH_TOKEN": {
+        "description": "**可选**。推送时放进 `Authorization` 头的值。你的渠道不需要认证就留空。"
+      },
+      "GITHUB_TOKEN": {
+        "description": "**可选**。GitHub Personal Access Token。不填也能跑，但匿名限 60 次/小时；要监控私有仓库则必填。"
+      }
+    }
+  }
+}

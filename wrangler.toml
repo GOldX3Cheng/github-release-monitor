@@ -1,0 +1,27 @@
+name = "github-release-monitor"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+# ---------- D1 数据库绑定 ----------
+# 绑定名必须是 DB（代码里用 env.DB 访问），不要改。
+# 用「Deploy to Cloudflare」按钮部署时，下面的 database_id 占位符会被自动
+# 替换成 Cloudflare 为你新建的数据库 ID，无需手工修改。
+# 只有走 wrangler 命令行本地部署时，才需要自己填真实 ID。
+[[d1_databases]]
+binding = "DB"
+database_name = "github-release-monitor"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# ---------- 定时触发 ----------
+# 每 5 分钟唤醒一次；Worker 内部按面板里设置的间隔决定实际检查节奏。
+# 注意：Cloudflare 免费版每个账号最多 5 个 cron 触发器。
+[triggers]
+crons = ["*/5 * * * *"]
+
+# ---------- 变量与机密 ----------
+# 这些值不要写进仓库，在 Cloudflare 后台「设置 → 变量和机密」里配置：
+#   必填  API_KEY、WEBHOOK_URL
+#   可选  WEBHOOK_AUTH_TOKEN、GITHUB_TOKEN
+#   可选  CF_API_TOKEN、CF_ACCOUNT_ID（仅配额面板需要，不配则该区块显示未启用）
+#
+# 本地开发时复制 .dev.vars.example 为 .dev.vars 再填值。

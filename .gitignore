@@ -1,0 +1,14 @@
+# 依赖与构建产物
+node_modules/
+dist/
+.wrangler/
+
+# 本地密钥（不要提交）
+.dev.vars
+.env
+.env.*
+
+# 日志与系统文件
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,23 @@
+# 本文件同时用于两处：
+#   1) 一键部署时，Cloudflare 读取这里的键名，在设置页逐项列出让你填值
+#   2) 本地 wrangler dev 时，复制为 .dev.vars 再填真实值（勿提交）
+#
+# 键名不要改动，值部署时再填。
+
+# 必填：面板与接口的访问密钥，也是你的面板密码
+API_KEY=
+
+# 必填：推送地址，需能接收 POST JSON
+WEBHOOK_URL=
+
+# 可选：推送时放进 Authorization 头的值，渠道不需要认证就留空
+WEBHOOK_AUTH_TOKEN=
+
+# 可选：GitHub Token，用于提高 API 限额、监控私有仓库
+GITHUB_TOKEN=
+
+# 下面两个只在启用「Cloudflare 配额面板」时才需要。
+# 部署完成后到 Worker → 设置 → 变量和机密 里单独添加即可，
+# 不填时配额区块显示「未启用」，不影响版本监控。
+# CF_ACCOUNT_ID=
+# CF_API_TOKEN=
