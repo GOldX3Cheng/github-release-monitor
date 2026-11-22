@@ -8,6 +8,7 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/GOldX3Cheng/github-release-monitor)
 
+[![Version](https://img.shields.io/github/v/release/GOldX3Cheng/github-release-monitor?sort=semver)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Runtime: Cloudflare Workers](https://img.shields.io/badge/runtime-Cloudflare%20Workers-F38020.svg)]()
 [![UI: Material Design 3](https://img.shields.io/badge/UI-Material%20Design%203-6750A4.svg)](docs/MD3_DESIGN.md)

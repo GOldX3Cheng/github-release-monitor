@@ -513,7 +513,7 @@ var index_default = {
     if (url.pathname === "/api/get-settings") {
       try {
         const [settings, state] = await Promise.all([getSettings(db), getCheckState(db)]);
-        return jsonResponse({ settings, state });
+        return jsonResponse({ settings, state, appVersion: APP_VERSION });
       } catch (e) {
         return jsonResponse({ error: "D1 \u72B6\u6001\u8BFB\u53D6\u5931\u8D25: " + e.message }, 500);
       }
@@ -1425,6 +1425,10 @@ function classifyError(err, res) {
   return { reason: msg || "\u672A\u77E5\u9519\u8BEF", category: "unknown" };
 }
 __name(classifyError, "classifyError");
+// 当前版本号，同时用于面板底部展示与 /api/get-settings 返回。
+// 发版时与 package.json、CHANGELOG.md、git tag 保持一致。
+var APP_VERSION = "1.0.0";
+
 // 主题自适应图标：SVG 内部用 prefers-color-scheme 判断，浅色主题深色猫头、
 // 深色主题自动换成浅色猫头，浏览器标签栏上两种主题都能看清。
 // 老浏览器不支持 SVG 图标时，用下面的 ICO 兜底。
@@ -1843,6 +1847,16 @@ var HTML_TEMPLATE = `<!DOCTYPE html>
     }
     .drawer-head h2{margin:0;font-size:22px;line-height:28px;font-weight:400}
     .drawer-body{flex:1 1 auto;overflow-y:auto;padding:8px 16px 24px;overscroll-behavior:contain}
+    .drawer-foot{
+      flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:12px 20px 18px;
+      font-size:11px;line-height:16px;color:var(--on-surface-variant);
+      border-top:1px solid var(--outline-variant);
+    }
+    .drawer-foot .ver{
+      font-variant-numeric:tabular-nums;padding:1px 8px;border-radius:var(--r-full);
+      background:var(--surface-container-high);color:var(--on-surface);
+    }
+    .drawer-foot .sp{flex:1 1 auto}
     .pane{display:none}
     .pane.on{display:block}
 
@@ -2120,6 +2134,12 @@ var HTML_TEMPLATE = `<!DOCTYPE html>
         </div>
 
       </div>
+    </div>
+    <div class="drawer-foot">
+      <span>GitHub Release 监控</span>
+      <span class="ver">v${APP_VERSION}</span>
+      <span class="sp"></span>
+      <span>MIT</span>
     </div>
   </aside>
 
