@@ -40,6 +40,10 @@
 | --- | --- |
 | ![面板浅色](docs/assets/dashboard-screenshot.png) | ![面板深色](docs/assets/dashboard-dark.png) |
 
+移动端（480px）：
+
+![移动端](docs/assets/dashboard-mobile.png)
+
 底部是可选的 Cloudflare 配额区块，未配置时不影响任何功能：
 
 ![配额区块](docs/assets/quota-panel.png)

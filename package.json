@@ -1,6 +1,6 @@
 {
   "name": "github-release-monitor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Monitor GitHub repository releases on Cloudflare Workers and send webhook notifications when a new release is published.",
   "type": "module",
   "private": false,
